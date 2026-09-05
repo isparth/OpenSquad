@@ -61,7 +61,9 @@ Things that look wrong but aren't:
 
 - `pnpm db:migrate` prints Postgres NOTICE objects (`schema "drizzle" already exists`) on re-runs. Harmless. "migrations applied" at the end is the signal.
 - The first `package` run downloads an Electron zip. A few minutes on a slow connection.
-- Some IDE terminals export `ELECTRON_RUN_AS_NODE=1`, which makes Electron start as plain Node. `pnpm dev:desktop` shows no window and `package` may misbehave. Prefix with `env -u ELECTRON_RUN_AS_NODE`.
+- `pnpm install` downloads the Electron binary through `apps/desktop`'s `postinstall` (Electron 42+ no longer does it itself). If `pnpm dev:desktop` fails with `Error: Electron uninstall`, run `pnpm --filter @opensquad/desktop exec install-electron`.
+- Some IDE terminals export `ELECTRON_RUN_AS_NODE=1`, which makes Electron start as plain Node. `pnpm dev:desktop` shows no window, and `open release/mac-arm64/OpenSquad.app` exits silently. Prefix with `env -u ELECTRON_RUN_AS_NODE`.
+- To pass Electron flags in dev: `pnpm --filter @opensquad/desktop dev -- --remote-debugging-port=9222`. `ELECTRON_EXTRA_LAUNCH_ARGS` is not honored by electron-vite.
 
 ## Rules
 

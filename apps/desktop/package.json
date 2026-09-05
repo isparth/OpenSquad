@@ -7,6 +7,7 @@
   "author": "OpenSquad",
   "homepage": "https://github.com/parthsharmapoudel/OpenSquad",
   "scripts": {
+    "postinstall": "install-electron",
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
     "preview": "electron-vite preview",

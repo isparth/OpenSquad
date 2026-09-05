@@ -3,9 +3,10 @@ packages:
   - packages/*
   - plugins/*
 
-# Postinstall scripts are blocked by default. These need theirs to install native binaries.
+# Postinstall scripts are blocked by default. esbuild needs its own to install the native binary.
+# Electron 42+ has no postinstall; apps/desktop runs `install-electron` from its own postinstall.
 allowBuilds:
   esbuild: true
-  electron: true
+  electron: false
   electron-winstaller: false
   "@clerk/shared": false
