@@ -1,0 +1,46 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/out",
+      "!**/release",
+      "!**/node_modules",
+      "!packages/db/drizzle/meta"
+    ]
+  },
+  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@supabase/supabase-js": "Provider SDKs belong in plugins/. Use the StorageProvider capability.",
+              "@daytonaio/sdk": "Provider SDKs belong in plugins/. Use the SandboxProvider capability.",
+              "mem0ai": "Provider SDKs belong in plugins/. Use the MemoryProvider capability.",
+              "agentmail": "Provider SDKs belong in plugins/. Use the EmailProvider capability.",
+              "@vapi-ai/server-sdk": "Provider SDKs belong in plugins/. Use the PhoneProvider capability.",
+              "@composio/core": "Provider SDKs belong in plugins/. Use the ToolsProvider capability.",
+              "@trigger.dev/sdk": "Provider SDKs belong in plugins/. Use the SchedulerProvider capability.",
+              "openai": "Provider SDKs belong in plugins/. Use the ModelProvider capability.",
+              "@clerk/fastify": "Clerk is only imported in apps/api/src/auth/."
+            }
+          }
+        }
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["plugins/**", "apps/api/src/auth/**"],
+      "linter": { "rules": { "style": { "noRestrictedImports": "off" } } }
+    }
+  ],
+  "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } }
+}

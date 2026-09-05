@@ -1,0 +1,106 @@
+# --- Dependencies ---
+node_modules/
+.pnpm-store/
+.yarn/
+.npm/
+
+# --- Build output ---
+dist/
+build/
+out/
+release/
+*.tsbuildinfo
+.turbo/
+.cache/
+.vite/
+.parcel-cache/
+coverage/
+.nyc_output/
+
+# --- Environment and secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.cer
+*.mobileprovision
+secrets/
+
+# --- Local data ---
+.data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+postgres-data/
+
+# --- Electron / electron-builder ---
+apps/desktop/out/
+apps/desktop/release/
+builder-debug.yml
+*.dmg
+*.pkg
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.snap
+*.blockmap
+
+# --- Private docs ---
+llm_docs/
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Test / debug artifacts ---
+*.xcresult
+playwright-report/
+test-results/
+.vitest/
+
+# --- Editors and IDEs ---
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.history/
+
+# --- AI tooling state (keep the shared config, ignore local state) ---
+.devin/state/
+.claude/settings.local.json
+.cursor/rules/local/
+
+# --- OS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Misc ---
+*.tgz
+*.zip
+*.tar.gz
+.eslintcache
+.stylelintcache
+tmp/
+temp/

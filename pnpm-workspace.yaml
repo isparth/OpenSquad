@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+  - plugins/*
+
+# Postinstall scripts are blocked by default. These need theirs to install native binaries.
+allowBuilds:
+  esbuild: true
+  electron: true
+  electron-winstaller: false
+  "@clerk/shared": false
