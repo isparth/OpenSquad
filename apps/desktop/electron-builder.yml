@@ -1,0 +1,24 @@
+appId: com.opensquad.app
+productName: OpenSquad
+directories:
+  buildResources: resources
+  output: release
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+asarUnpack:
+  - resources/**
+mac:
+  category: public.app-category.productivity
+  target: [dmg, zip]
+  hardenedRuntime: true
+  entitlementsInherit: resources/entitlements.mac.plist
+  notarize: false
+win:
+  target: [nsis]
+linux:
+  target: [AppImage, deb]
+  category: Utility
+npmRebuild: false
+publish: null
