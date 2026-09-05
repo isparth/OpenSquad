@@ -51,6 +51,7 @@ builder-debug.yml
 
 # --- Private docs ---
 llm_docs/
+trace/
 
 # --- Logs ---
 logs/
