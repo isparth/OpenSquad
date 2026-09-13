@@ -28,7 +28,7 @@
               "@vapi-ai/server-sdk": "Provider SDKs belong in plugins/. Use the PhoneProvider capability.",
               "@composio/core": "Provider SDKs belong in plugins/. Use the ToolsProvider capability.",
               "@trigger.dev/sdk": "Provider SDKs belong in plugins/. Use the SchedulerProvider capability.",
-              "openai": "Provider SDKs belong in plugins/. Use the ModelProvider capability.",
+              "openai": "Provider SDKs belong in plugins/. Use the AgentRuntimeProvider capability.",
               "@clerk/fastify": "Clerk is only imported in apps/api/src/auth/."
             }
           }

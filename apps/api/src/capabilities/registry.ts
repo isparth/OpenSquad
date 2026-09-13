@@ -1,10 +1,9 @@
 import type { Capabilities } from "@opensquad/core";
 import { AgentMailProvider } from "@opensquad/plugin-agentmail";
 import { ComposioProvider } from "@opensquad/plugin-composio";
-import { DaytonaProvider } from "@opensquad/plugin-daytona";
 import { LocalStorageProvider } from "@opensquad/plugin-local-storage";
 import { Mem0Provider } from "@opensquad/plugin-mem0";
-import { OpenRouterProvider } from "@opensquad/plugin-openrouter";
+import { OpenAIAgentsProvider } from "@opensquad/plugin-openai-agents";
 import { SupabaseStorageProvider } from "@opensquad/plugin-supabase-storage";
 import { TriggerProvider } from "@opensquad/plugin-trigger";
 import { VapiProvider } from "@opensquad/plugin-vapi";
@@ -28,8 +27,7 @@ export function buildCapabilities(env: Env): Capabilities {
         });
 
   return {
-    model: new OpenRouterProvider(),
-    sandbox: new DaytonaProvider({ apiKey: env.DAYTONA_API_KEY ?? "" }),
+    runtime: new OpenAIAgentsProvider({ defaultModel: env.RUNTIME_MODEL }),
     memory: new Mem0Provider({ apiKey: env.MEM0_API_KEY ?? "" }),
     email: new AgentMailProvider({ apiKey: env.AGENTMAIL_API_KEY ?? "" }),
     phone: new VapiProvider({ apiKey: env.VAPI_API_KEY ?? "" }),

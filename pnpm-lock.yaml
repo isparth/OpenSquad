@@ -41,18 +41,15 @@ importers:
       '@opensquad/plugin-composio':
         specifier: workspace:*
         version: link:../../plugins/composio
-      '@opensquad/plugin-daytona':
-        specifier: workspace:*
-        version: link:../../plugins/daytona
       '@opensquad/plugin-local-storage':
         specifier: workspace:*
         version: link:../../plugins/local-storage
       '@opensquad/plugin-mem0':
         specifier: workspace:*
         version: link:../../plugins/mem0
-      '@opensquad/plugin-openrouter':
+      '@opensquad/plugin-openai-agents':
         specifier: workspace:*
-        version: link:../../plugins/openrouter
+        version: link:../../plugins/openai-agents
       '@opensquad/plugin-supabase-storage':
         specifier: workspace:*
         version: link:../../plugins/supabase-storage

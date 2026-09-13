@@ -1,8 +1,7 @@
 import type { EmailProvider } from "./email.js";
 import type { MemoryProvider } from "./memory.js";
-import type { ModelProvider } from "./model.js";
 import type { PhoneProvider } from "./phone.js";
-import type { SandboxProvider } from "./sandbox.js";
+import type { AgentRuntimeProvider } from "./runtime.js";
 import type { SchedulerProvider } from "./scheduler.js";
 import type { StorageProvider } from "./storage.js";
 import type { ToolsProvider } from "./tools.js";
@@ -23,8 +22,7 @@ export * from "./tools.js";
  * See llm_docs/SPEC.md section 2.
  */
 export interface Capabilities {
-  model: ModelProvider;
-  sandbox: SandboxProvider;
+  runtime: AgentRuntimeProvider;
   memory: MemoryProvider;
   email: EmailProvider;
   phone: PhoneProvider;
