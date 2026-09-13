@@ -11,6 +11,7 @@ export * from "./email.js";
 export * from "./memory.js";
 export * from "./model.js";
 export * from "./phone.js";
+export * from "./runtime.js";
 export * from "./sandbox.js";
 export * from "./scheduler.js";
 export * from "./storage.js";
