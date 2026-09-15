@@ -15,12 +15,27 @@ const agentSchema = z.object({
   updatedAt: z.date(),
 });
 
+const editableFields = {
+  name: z.string().trim().min(1).max(100),
+  label: z
+    .string()
+    .trim()
+    .max(50)
+    .nullable()
+    .transform((value) => value || null),
+  description: z.string().max(2000),
+  instructions: z.string().max(20000),
+};
 const createAgentSchema = z.object({
-  name: z.string().min(1).max(100),
-  label: z.string().max(50).optional(),
-  description: z.string().max(2000).default(""),
-  instructions: z.string().max(20000).default(""),
+  ...editableFields,
+  label: editableFields.label.optional(),
+  description: editableFields.description.default(""),
+  instructions: editableFields.instructions.default(""),
 });
+const updateAgentSchema = z
+  .strictObject(editableFields)
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, "Provide at least one field to update");
 
 const routes: FastifyPluginAsyncZod = async (app) => {
   const service = agentsService(app.db);
@@ -44,6 +59,15 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     { schema: { params: idParams, response: { 200: agentSchema } } },
     async (request, reply) => {
       const row = await service.get(request.userId as string, request.params.id);
+      return row ?? reply.notFound();
+    },
+  );
+
+  app.patch(
+    "/:id",
+    { schema: { params: idParams, body: updateAgentSchema, response: { 200: agentSchema } } },
+    async (request, reply) => {
+      const row = await service.update(request.userId as string, request.params.id, request.body);
       return row ?? reply.notFound();
     },
   );

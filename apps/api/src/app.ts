@@ -29,7 +29,7 @@ export async function buildApp(env: Env, options: BuildAppOptions = {}) {
 
   await app.register(envPlugin, { env });
   await app.register(sensible);
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: true, methods: ["GET", "HEAD", "POST", "PATCH", "DELETE"] });
   await app.register(db);
   await app.register(capabilities, { overrides: options.capabilities ?? {} });
   await app.register(auth);
