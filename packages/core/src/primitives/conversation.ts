@@ -66,6 +66,7 @@ export interface ConversationSnapshot {
 
 export type ConversationEventType =
   | "conversation.snapshot"
+  | "participant.updated"
   | "message.created"
   | "message.delta"
   | "message.text.completed"
