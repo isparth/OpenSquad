@@ -35,12 +35,21 @@ export function agentsService(db: Database) {
       return row ?? null;
     },
 
-    delete: async (ownerId: string, id: string): Promise<boolean> => {
-      const rows = await db
+    setAvatar: (ownerId: string, id: string, avatarUrl: string) =>
+      db.transaction(async (tx) => {
+        const condition = and(eq(agents.id, id), eq(agents.ownerId, ownerId));
+        const [previous] = await tx.select().from(agents).where(condition).for("update");
+        if (!previous) return null;
+        await tx.update(agents).set({ avatarUrl, updatedAt: nextUpdatedAt }).where(condition);
+        return { previousUrl: previous.avatarUrl, avatarUrl };
+      }),
+
+    delete: async (ownerId: string, id: string): Promise<AgentRow | null> => {
+      const [row] = await db
         .delete(agents)
         .where(and(eq(agents.id, id), eq(agents.ownerId, ownerId)))
-        .returning({ id: agents.id });
-      return rows.length > 0;
+        .returning();
+      return row ?? null;
     },
   };
 }

@@ -1,5 +1,7 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { removeAvatar } from "./avatar.js";
+import avatarRoutes from "./avatar-routes.js";
 import { agentsService } from "./service.js";
 
 const idParams = z.object({ id: z.uuid() });
@@ -74,8 +76,14 @@ const routes: FastifyPluginAsyncZod = async (app) => {
 
   app.delete("/:id", { schema: { params: idParams } }, async (request, reply) => {
     const deleted = await service.delete(request.userId as string, request.params.id);
-    return deleted ? reply.code(204).send() : reply.notFound();
+    if (!deleted) return reply.notFound();
+    await removeAvatar(app.capabilities.storage, deleted.id, deleted.avatarUrl, () =>
+      request.log.warn({ agentId: deleted.id }, "Avatar storage cleanup failed"),
+    );
+    return reply.code(204).send();
   });
+
+  await app.register(avatarRoutes);
 };
 
 export default routes;
