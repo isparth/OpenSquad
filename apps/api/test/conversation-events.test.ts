@@ -151,7 +151,10 @@ describe("product event streams over HTTP", () => {
   it("acknowledges a caught-up replay cursor without waiting for a new event", async () => {
     const controller = new AbortController();
     pendingRequests.add(controller);
-    const response = await fetchStream(`${address}/conversations/${conversationId}/events`, { headers: { "Last-Event-ID": "0" }, signal: controller.signal });
+    const response = await fetchStream(`${address}/conversations/${conversationId}/events`, {
+      headers: { "Last-Event-ID": "0" },
+      signal: controller.signal,
+    });
     expect(response.status).toBe(200);
     const reader = response.body?.getReader();
     if (!reader) throw new Error("Missing stream");
@@ -159,11 +162,20 @@ describe("product event streams over HTTP", () => {
   });
 
   it("resets an expired cursor even when the retained event log is entirely empty", async () => {
-    await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })("dev-user", conversationId, { text: "Retained history", clientRequestId: randomUUID() });
-    await app.db.delete(conversationEvents).where(eq(conversationEvents.conversationId, conversationId));
+    await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })(
+      "dev-user",
+      conversationId,
+      { text: "Retained history", clientRequestId: randomUUID() },
+    );
+    await app.db
+      .delete(conversationEvents)
+      .where(eq(conversationEvents.conversationId, conversationId));
     const controller = new AbortController();
     pendingRequests.add(controller);
-    const response = await fetchStream(`${address}/conversations/${conversationId}/events`, { headers: { "Last-Event-ID": "0" }, signal: controller.signal });
+    const response = await fetchStream(`${address}/conversations/${conversationId}/events`, {
+      headers: { "Last-Event-ID": "0" },
+      signal: controller.signal,
+    });
     const reader = response.body?.getReader();
     if (!reader) throw new Error("Missing stream");
     const next = frames(reader);

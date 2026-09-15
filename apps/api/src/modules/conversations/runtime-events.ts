@@ -12,9 +12,14 @@ import { appendEvent, nextMessageSequence, type Transaction, terminal } from "./
 import { runtimeStore, saveRun } from "./run-store.js";
 
 async function saveMessage(tx: Transaction, run: ConversationRunRow, message: RuntimeMessage) {
-  if (Buffer.byteLength(JSON.stringify(message)) > 1_000_000) throw new Error("Output limit exceeded");
+  if (Buffer.byteLength(JSON.stringify(message)) > 1_000_000)
+    throw new Error("Output limit exceeded");
   if (!message.externalId) {
-    if (run.recoveryMessages.length >= 100 || Buffer.byteLength(JSON.stringify([...run.recoveryMessages, message])) > 1_000_000) throw new Error("Recovery snapshot limit exceeded");
+    if (
+      run.recoveryMessages.length >= 100 ||
+      Buffer.byteLength(JSON.stringify([...run.recoveryMessages, message])) > 1_000_000
+    )
+      throw new Error("Recovery snapshot limit exceeded");
     await saveRun(tx, run, {
       recoveryMessages: [...run.recoveryMessages, message],
       errorCode: "history_requires_review",
@@ -36,7 +41,8 @@ async function saveMessage(tx: Transaction, run: ConversationRunRow, message: Ru
     index,
     completed: message.status !== "running",
   }));
-  if (Buffer.byteLength(JSON.stringify(content)) > 1_000_000) throw new Error("Output limit exceeded");
+  if (Buffer.byteLength(JSON.stringify(content)) > 1_000_000)
+    throw new Error("Output limit exceeded");
   if (message.role === "user") {
     if (
       message.content.length !== 1 ||
@@ -49,7 +55,7 @@ async function saveMessage(tx: Transaction, run: ConversationRunRow, message: Ru
       .from(conversationMessages)
       .where(and(eq(conversationMessages.runId, run.id), eq(conversationMessages.role, "user")));
   }
-  if (row?.status === "completed" && message.status !== "completed") return;
+  if (row?.status === "completed") return;
   const created = !row;
   if (!row) {
     [row] = await tx
@@ -185,7 +191,7 @@ export function runtimeEvents(db: Database) {
           )
             throw new Error("Invalid content index");
           const previous = message.content.find((part) => part.index === event.contentIndex);
-          if (event.type === "message.delta" && previous?.completed) return "ignored";
+          if (previous?.completed) return "ignored";
           const text =
             event.type === "message.text.completed"
               ? event.text
@@ -199,7 +205,8 @@ export function runtimeEvents(db: Database) {
               completed: event.type === "message.text.completed",
             },
           ].sort((a, b) => a.index - b.index);
-          if (Buffer.byteLength(JSON.stringify(content)) > 1_000_000) throw new Error("Output limit exceeded");
+          if (Buffer.byteLength(JSON.stringify(content)) > 1_000_000)
+            throw new Error("Output limit exceeded");
           await tx
             .update(conversationMessages)
             .set({ content })

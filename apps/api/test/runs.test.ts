@@ -184,7 +184,15 @@ describe("runtime HTTP execution", () => {
   it("requests a stop when live output exceeds the supported buffer limit", async () => {
     runtime.sendInput.mockImplementation(async () => {
       queue.emit(turn("running"));
-      queue.emit({ type: "message.delta", externalId: randomUUID(), sessionExternalId: session.externalId, turnExternalId: "root-test", itemExternalId: "large-item", contentIndex: 0, text: "x".repeat(1_000_001) });
+      queue.emit({
+        type: "message.delta",
+        externalId: randomUUID(),
+        sessionExternalId: session.externalId,
+        turnExternalId: "root-test",
+        itemExternalId: "large-item",
+        contentIndex: 0,
+        text: "x".repeat(1_000_001),
+      });
     });
     runtime.cancel.mockResolvedValue(undefined);
     expect((await send()).statusCode).toBe(202);

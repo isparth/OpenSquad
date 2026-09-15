@@ -41,7 +41,10 @@ export function eventStreams(db: Database) {
           while (!controller.signal.aborted) {
             const window = await service.eventWindow(ownerId, conversationId, cursor, 1);
             const event = window.items[0];
-            if ((event && BigInt(event.id) !== cursor + 1n) || (!event && cursor < window.sequence)) {
+            if (
+              (event && BigInt(event.id) !== cursor + 1n) ||
+              (!event && cursor < window.sequence)
+            ) {
               const snapshot = await service.snapshot(ownerId, conversationId);
               yield `event: stream.reset\ndata: ${JSON.stringify({ conversationId, runId: null, createdAt: new Date().toISOString(), payload: { reason: "cursor_expired" } })}\n\n`;
               yield snapshotFrame(snapshot);

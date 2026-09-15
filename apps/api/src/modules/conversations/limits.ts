@@ -2,7 +2,7 @@ import { type Database, requestRateLimits } from "@opensquad/db";
 import { sql } from "drizzle-orm";
 import { ConversationError } from "./dto.js";
 
-export async function chargeRequest(db: Database, ownerId: string): Promise<void> {
+export async function chargeRequest(db: Database, ownerId: string, maximum = 120): Promise<void> {
   const expired = sql`${requestRateLimits.windowStart} < clock_timestamp() - interval '1 minute'`;
   const rows = await db
     .insert(requestRateLimits)
@@ -13,7 +13,7 @@ export async function chargeRequest(db: Database, ownerId: string): Promise<void
         count: sql`case when ${expired} then 1 else ${requestRateLimits.count} + 1 end`,
         windowStart: sql`case when ${expired} then clock_timestamp() else ${requestRateLimits.windowStart} end`,
       },
-      setWhere: sql`(${expired}) or ${requestRateLimits.count} < 120`,
+      setWhere: sql`(${expired}) or ${requestRateLimits.count} < ${maximum}`,
     })
     .returning({ ownerId: requestRateLimits.ownerId });
   if (!rows.length) throw new ConversationError(429, "Request limit reached; retry later");

@@ -248,8 +248,16 @@ export async function executeRun(work: RunWork) {
       const { run, session } = await store.get(ownerId, runId);
       if (session.externalId && !run.cancelDispatched && !run.mutationInFlight) {
         try {
-          await mutate("cancelling", () => runtime.cancel({ provider: session.provider, externalId: session.externalId as string }, credentials, { signal }));
-        } catch { errorCode = "uncertain_mutation"; }
+          await mutate("cancelling", () =>
+            runtime.cancel(
+              { provider: session.provider, externalId: session.externalId as string },
+              credentials,
+              { signal },
+            ),
+          );
+        } catch {
+          errorCode = "uncertain_mutation";
+        }
       }
     }
     if (signal.aborted) errorCode = "worker_lost";

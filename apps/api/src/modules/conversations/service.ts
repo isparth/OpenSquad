@@ -44,15 +44,33 @@ async function readMessages(
 }
 
 export function conversationsService(db: Database) {
-  const eventWindow = (ownerId: string, id: string, after: bigint, limit = 100) => db.transaction(async (tx) => {
-    const conversation = await lockConversation(tx, ownerId, id);
-    if (after > conversation.eventSequence) throw new ConversationError(400, "Event cursor is ahead of this conversation");
-    const [active] = await tx.select().from(conversationRuns).where(and(eq(conversationRuns.conversationId, id), eq(conversationRuns.active, true)));
-    if (active) await refreshObservation(tx, active);
-    const rows = await tx.select().from(conversationEvents).where(and(eq(conversationEvents.conversationId, id), gt(conversationEvents.sequence, after))).orderBy(asc(conversationEvents.sequence)).limit(limit);
-    const [current] = await tx.select({ sequence: conversations.eventSequence }).from(conversations).where(eq(conversations.id, id));
-    return { items: rows.map(eventDto), sequence: current?.sequence ?? conversation.eventSequence };
-  });
+  const eventWindow = (ownerId: string, id: string, after: bigint, limit = 100) =>
+    db.transaction(async (tx) => {
+      const conversation = await lockConversation(tx, ownerId, id);
+      if (after > conversation.eventSequence)
+        throw new ConversationError(400, "Event cursor is ahead of this conversation");
+      const [active] = await tx
+        .select()
+        .from(conversationRuns)
+        .where(and(eq(conversationRuns.conversationId, id), eq(conversationRuns.active, true)));
+      if (active) await refreshObservation(tx, active);
+      const rows = await tx
+        .select()
+        .from(conversationEvents)
+        .where(
+          and(eq(conversationEvents.conversationId, id), gt(conversationEvents.sequence, after)),
+        )
+        .orderBy(asc(conversationEvents.sequence))
+        .limit(limit);
+      const [current] = await tx
+        .select({ sequence: conversations.eventSequence })
+        .from(conversations)
+        .where(eq(conversations.id, id));
+      return {
+        items: rows.map(eventDto),
+        sequence: current?.sequence ?? conversation.eventSequence,
+      };
+    });
   return {
     create: (ownerId: string, agentId: string, title: string | null) =>
       db.transaction(async (tx) => {
@@ -137,6 +155,7 @@ export function conversationsService(db: Database) {
         return readMessages(tx, id, limit, before);
       }),
     eventWindow,
-    events: async (ownerId: string, id: string, after: bigint, limit = 100) => (await eventWindow(ownerId, id, after, limit)).items,
+    events: async (ownerId: string, id: string, after: bigint, limit = 100) =>
+      (await eventWindow(ownerId, id, after, limit)).items,
   };
 }

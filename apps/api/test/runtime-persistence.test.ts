@@ -84,6 +84,14 @@ describe("normalized runtime persistence", () => {
     await apply(completion);
     await apply(
       event({
+        type: "message.text.completed",
+        itemExternalId: "item-a",
+        contentIndex: 2,
+        text: "conflicting completion",
+      } as RuntimeEvent),
+    );
+    await apply(
+      event({
         type: "message.delta",
         itemExternalId: "item-a",
         contentIndex: 2,
@@ -136,7 +144,19 @@ describe("normalized runtime persistence", () => {
 
   it("bounds multibyte output by serialized bytes rather than character count", async () => {
     await runtimeEvents(app.db).apply(owner, runId, token, turn("running"));
-    await expect(runtimeEvents(app.db).apply(owner, runId, token, event({ type: "message.text.completed", itemExternalId: "oversized", contentIndex: 0, text: "界".repeat(400000) } as RuntimeEvent))).rejects.toThrow("Output limit exceeded");
+    await expect(
+      runtimeEvents(app.db).apply(
+        owner,
+        runId,
+        token,
+        event({
+          type: "message.text.completed",
+          itemExternalId: "oversized",
+          contentIndex: 0,
+          text: "界".repeat(400000),
+        } as RuntimeEvent),
+      ),
+    ).rejects.toThrow("Output limit exceeded");
   });
 
   it("keeps admission blocked if recovery failed after reading a remote terminal outcome", async () => {

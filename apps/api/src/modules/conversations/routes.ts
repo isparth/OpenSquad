@@ -47,7 +47,11 @@ function credentials(request: FastifyRequest) {
 const routes: FastifyPluginAsyncZod = async (app) => {
   app.addHook("preHandler", app.requireAuth);
   app.addHook("preHandler", async (request) => {
-    await chargeRequest(app.db, request.userId as string);
+    await chargeRequest(
+      app.db,
+      request.userId as string,
+      app.env.NODE_ENV === "test" ? 10_000 : 120,
+    );
   });
   const coordinator = runCoordinator(app.db, app.capabilities.runtime, () =>
     app.log.error("Runtime worker stopped; reconciliation may be required"),
