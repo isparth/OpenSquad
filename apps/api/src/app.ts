@@ -10,6 +10,7 @@ import {
 import auth from "./auth/index.js";
 import type { Env } from "./config/env.js";
 import agentsRoutes from "./modules/agents/routes.js";
+import conversationsRoutes from "./modules/conversations/routes.js";
 import healthRoutes from "./modules/health/routes.js";
 import capabilities from "./plugins/capabilities.js";
 import db from "./plugins/db.js";
@@ -20,8 +21,21 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp(env: Env, options: BuildAppOptions = {}) {
+  if (env.NODE_ENV === "production" && (!env.CLERK_SECRET_KEY || !env.CLERK_PUBLISHABLE_KEY)) {
+    throw new Error("Production requires both Clerk keys");
+  }
   const app = Fastify({
-    logger: env.NODE_ENV === "test" ? false : { level: env.LOG_LEVEL },
+    logger:
+      env.NODE_ENV === "test"
+        ? false
+        : {
+            level: env.LOG_LEVEL,
+            redact: [
+              "req.headers.authorization",
+              "req.headers.cookie",
+              'req.headers["x-opensquad-runtime-key"]',
+            ],
+          },
   }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
@@ -36,6 +50,7 @@ export async function buildApp(env: Env, options: BuildAppOptions = {}) {
 
   await app.register(healthRoutes);
   await app.register(agentsRoutes, { prefix: "/agents" });
+  await app.register(conversationsRoutes);
 
   return app;
 }

@@ -111,6 +111,9 @@ importers:
       react-dom:
         specifier: ^19.2.0
         version: 19.2.8(react@19.2.8)
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.0
@@ -166,6 +169,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@opensquad/core':
+        specifier: workspace:*
+        version: link:../core
       drizzle-orm:
         specifier: ^0.44.0
         version: 0.44.7(postgres@3.4.9)
