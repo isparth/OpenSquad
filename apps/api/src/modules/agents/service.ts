@@ -1,5 +1,22 @@
-import { type AgentRow, agents, type Database, type NewAgentRow } from "@opensquad/db";
+import {
+  type AgentRow,
+  agents,
+  conversationRuns,
+  conversations,
+  type Database,
+  type NewAgentRow,
+  participants,
+} from "@opensquad/db";
 import { and, eq, sql } from "drizzle-orm";
+import { participantDto } from "../conversations/dto.js";
+import { appendEvent } from "../conversations/persistence.js";
+
+export class AgentRunConflict extends Error {
+  readonly statusCode = 409;
+  constructor() {
+    super("Finish or reconcile this bot's active runs before deleting it");
+  }
+}
 
 export type AgentUpdate = {
   [Field in "name" | "label" | "description" | "instructions"]?: AgentRow[Field] | undefined;
@@ -44,12 +61,41 @@ export function agentsService(db: Database) {
         return { previousUrl: previous.avatarUrl, avatarUrl };
       }),
 
-    delete: async (ownerId: string, id: string): Promise<AgentRow | null> => {
-      const [row] = await db
-        .delete(agents)
-        .where(and(eq(agents.id, id), eq(agents.ownerId, ownerId)))
-        .returning();
-      return row ?? null;
-    },
+    delete: (ownerId: string, id: string): Promise<AgentRow | null> =>
+      db.transaction(async (tx) => {
+        const condition = and(eq(agents.id, id), eq(agents.ownerId, ownerId));
+        const [agent] = await tx.select().from(agents).where(condition).for("update");
+        if (!agent) return null;
+        const [active] = await tx
+          .select({ id: conversationRuns.id })
+          .from(conversationRuns)
+          .innerJoin(participants, eq(participants.id, conversationRuns.agentParticipantId))
+          .where(and(eq(participants.agentId, id), eq(conversationRuns.active, true)))
+          .limit(1);
+        if (active) throw new AgentRunConflict();
+        const members = await tx
+          .select()
+          .from(participants)
+          .where(eq(participants.agentId, id))
+          .orderBy(participants.conversationId);
+        for (const member of members) {
+          await tx
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(eq(conversations.id, member.conversationId))
+            .for("update");
+          const [updated] = await tx
+            .update(participants)
+            .set({ agentId: null, deletedAt: new Date() })
+            .where(eq(participants.id, member.id))
+            .returning();
+          if (updated)
+            await appendEvent(tx, member.conversationId, "participant.updated", null, {
+              participant: participantDto(updated),
+            });
+        }
+        await tx.delete(agents).where(condition);
+        return agent;
+      }),
   };
 }
