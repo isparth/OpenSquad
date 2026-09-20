@@ -46,11 +46,13 @@ export function RuntimeKeyDialog({ onClose }: { onClose: () => void }) {
     const element = dialog.current;
     element?.showModal();
     input.current?.focus();
-    return () => element?.close();
+    return () => {
+      if (element?.open) element.close();
+    };
   }, []);
 
   async function submit() {
-    const value = key;
+    const value = key.trim();
     setBusy(true);
     try {
       await save(value);

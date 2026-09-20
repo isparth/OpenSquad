@@ -136,6 +136,33 @@ describe("conversation client", () => {
       "http://localhost:3000/conversations?agentId=bot%20id&limit=100",
       expect.objectContaining({ redirect: "error" }),
     );
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null })));
+    expect(await api.listConversations("bot id", "cur sor")).toEqual({
+      items: [],
+      nextCursor: null,
+    });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/conversations?agentId=bot%20id&limit=100&cursor=cur%20sor",
+      expect.anything(),
+    );
+  });
+
+  it("refetches /me after a failed lookup instead of caching the rejection", async () => {
+    const client = new ApiClient("http://localhost:3000/");
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(new Response("nope", { status: 500 }));
+    await expect(client.createConversation("agent-1")).rejects.toEqual(
+      new ApiError(500, "API returned status 500"),
+    );
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ userId: "dev-user" })));
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ conversation })));
+    await client.createConversation("agent-1");
+    expect(fetch).toHaveBeenNthCalledWith(2, "http://localhost:3000/me", expect.anything());
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:3000/conversations",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("creates a conversation with the cached /me user id", async () => {
@@ -202,6 +229,8 @@ describe("conversation client", () => {
       { items: [{ ...message, status: "queued" }], nextCursor: null },
       { items: [{ ...message, phase: "draft" }], nextCursor: null },
       { items: [{ ...message, sequence: 2 }], nextCursor: null },
+      { items: [{ ...message, sequence: "abc" }], nextCursor: null },
+      { items: [{ ...message, sequence: "2.5" }], nextCursor: null },
     ]) {
       fetch.mockResolvedValueOnce(new Response(JSON.stringify(body)));
       await expect(api.listMessages("c-1", null)).rejects.toThrow("Invalid conversation response");

@@ -187,6 +187,34 @@ describe("chat view", () => {
     expect(FakeEventSource.instances.at(-1)?.url).toContain("/conversations/c-2/events");
   });
 
+  it("appends a second page on Load more and hides the button at the end", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const parsed = new URL(url);
+      if (parsed.pathname === "/conversations" && parsed.searchParams.get("cursor") === "page-2") {
+        return Promise.resolve(Response.json({ items: [conversation, created], nextCursor: null }));
+      }
+      if (parsed.pathname === "/conversations") {
+        return Promise.resolve(Response.json({ items: [conversation], nextCursor: "page-2" }));
+      }
+      return routedFetch(input);
+    });
+    renderChat();
+    await screen.findByRole("button", { name: /Conversation ·/ });
+    expect(screen.getAllByRole("button", { name: /Conversation ·/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("cursor=page-2"),
+        expect.anything(),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: /Conversation ·/ })).toHaveLength(2),
+    );
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
   it("sends a message, streams the reply, and re-enables the composer", async () => {
     renderChat();
     const source = await selectConversation();

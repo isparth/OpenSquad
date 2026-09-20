@@ -106,7 +106,11 @@ function isParticipant(value: unknown): value is ConversationParticipant {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    (value.kind === "user" || value.kind === "agent")
+    typeof value.conversationId === "string" &&
+    typeof value.refId === "string" &&
+    typeof value.name === "string" &&
+    (value.kind === "user" || value.kind === "agent") &&
+    (value.deletedAt === null || typeof value.deletedAt === "string")
   );
 }
 
@@ -203,8 +207,14 @@ function reduceRun(state: ThreadState, run: ConversationRun): ThreadState {
     }
     return { ...state, activeRun: run };
   }
-  if (state.activeRun?.id === run.id || state.activeRun === null) {
+  if (state.activeRun?.id === run.id) {
     return { ...state, activeRun: null, lastRun: run };
+  }
+  if (state.activeRun === null) {
+    const last = state.lastRun;
+    if (!last || last.id === run.id || run.createdAt >= last.createdAt) {
+      return { ...state, activeRun: null, lastRun: run };
+    }
   }
   return state;
 }

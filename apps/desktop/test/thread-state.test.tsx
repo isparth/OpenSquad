@@ -204,6 +204,28 @@ describe("thread state", () => {
     expect(other.activeRun?.id).toBe("r-2");
   });
 
+  it("does not let an older terminal run clobber a newer lastRun", () => {
+    const newer = run({
+      id: "r-2",
+      active: false,
+      status: "succeeded",
+      createdAt: "2026-09-15T00:05:00.000Z",
+    });
+    const older = run({
+      id: "r-1",
+      active: false,
+      status: "failed",
+      createdAt: "2026-09-15T00:01:00.000Z",
+    });
+    const state: ThreadState = { ...emptyThread, lastRun: newer };
+    expect(applyEvent(state, { type: "run.updated", payload: { run: older } }).lastRun).toEqual(
+      newer,
+    );
+    expect(applyEvent(state, { type: "run.updated", payload: { run: newer } }).lastRun).toEqual(
+      newer,
+    );
+  });
+
   it("replaces participants by id and ignores resets and invalid payloads", () => {
     const renamed = { ...participant, name: "Renamed" };
     const state = applyEvent(
@@ -219,6 +241,10 @@ describe("thread state", () => {
       { type: "message.delta", payload: "junk" },
       { type: "run.updated", payload: { run: { ...run(), observation: undefined } } },
       { type: "run.updated", payload: { run: { ...run(), error: { code: 1 } } } },
+      {
+        type: "participant.updated",
+        payload: { participant: { ...participant, name: { nested: "x" } } },
+      },
     ]) {
       expect(applyEvent(state, event)).toBe(state);
     }

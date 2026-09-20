@@ -84,7 +84,7 @@ describe("runtime key dialog", () => {
     const input = await screen.findByLabelText("Runtime key", { selector: "input" });
     fireEvent.change(input, { target: { value: "  sk-test  " } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(window.opensquad.setRuntimeKey).toHaveBeenCalledWith("  sk-test  "));
+    await waitFor(() => expect(window.opensquad.setRuntimeKey).toHaveBeenCalledWith("sk-test"));
     expect(window.opensquad.setRuntimeKey).toHaveBeenCalledTimes(1);
     expect(input).toHaveValue("");
     expect(await screen.findByRole("status")).toHaveTextContent(

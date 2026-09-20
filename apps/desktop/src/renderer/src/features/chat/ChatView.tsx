@@ -88,7 +88,7 @@ function Chat({
   const { status: keyStatus } = useRuntimeKey();
   const keyReady = keyStatus?.state === "configured";
   const loadConversations = useCallback(
-    (api: ApiClient, signal: AbortSignal) => api.listConversations(agent.id, signal),
+    (api: ApiClient, signal: AbortSignal) => api.listConversations(agent.id, null, signal),
     [agent.id],
   );
   const {
@@ -97,12 +97,45 @@ function Chat({
     loading: listLoading,
     refresh: refreshConversations,
   } = useApiResource(loadConversations);
-  const conversations = [...(conversationPage?.items ?? [])].sort(
-    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
-  );
+  const [more, setMore] = useState<{
+    items: ConversationSummary[];
+    nextCursor: string | null;
+  } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const seen = new Set<string>();
+  const conversations = [...(more?.items ?? []), ...(conversationPage?.items ?? [])]
+    .filter((conversation) => {
+      if (seen.has(conversation.id)) return false;
+      seen.add(conversation.id);
+      return true;
+    })
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const listCursor = more ? more.nextCursor : (conversationPage?.nextCursor ?? null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  async function loadMore() {
+    if (listCursor === null || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const api = await getApiClient();
+      const page = await api.listConversations(agent.id, listCursor);
+      setMore((current) => ({
+        items: [...(current?.items ?? []), ...page.items],
+        nextCursor: page.nextCursor,
+      }));
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "Unable to load conversations");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  function refreshList() {
+    setMore(null);
+    refreshConversations();
+  }
 
   async function newConversation() {
     if (creating) return;
@@ -112,7 +145,7 @@ function Chat({
       const api = await getApiClient();
       const { conversation } = await api.createConversation(agent.id);
       setConversationId(conversation.id);
-      refreshConversations();
+      refreshList();
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "Unable to create conversation");
     } finally {
@@ -162,7 +195,7 @@ function Chat({
               <p role="alert" className="error-message">
                 {listError.message}
               </p>
-              <button type="button" className="button secondary" onClick={refreshConversations}>
+              <button type="button" className="button secondary" onClick={refreshList}>
                 Retry
               </button>
             </div>
@@ -186,6 +219,18 @@ function Chat({
               </li>
             ))}
           </ul>
+          {listCursor !== null && (
+            <div className="chat-earlier">
+              <button
+                type="button"
+                className="button text-button"
+                disabled={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                {loadingMore ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          )}
         </aside>
         <div className="chat-thread">
           {conversationId ? (
@@ -224,6 +269,7 @@ function Thread({
   const [pending, setPending] = useState<{ text: string; clientRequestId: string } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [runBusy, setRunBusy] = useState(false);
   const scroller = useRef<HTMLOListElement>(null);
   const nearBottom = useRef(true);
   const messages = thread.messages;
@@ -235,6 +281,7 @@ function Thread({
   }, [messages]);
 
   async function send(pendingSend?: { text: string; clientRequestId: string }) {
+    if (pending && !pendingSend) return;
     const attempt = pendingSend ?? { text: draft, clientRequestId: crypto.randomUUID() };
     if (!attempt.text.trim()) return;
     setPending(attempt);
@@ -248,7 +295,7 @@ function Thread({
       apply({ type: "message.created", payload: { message: result.message } });
       apply({ type: "run.updated", payload: { run: result.run } });
       setPending(null);
-      setDraft("");
+      setDraft((current) => (current === attempt.text ? "" : current));
     } catch (error) {
       setSendError(error instanceof Error ? error.message : "Unable to send message");
     }
@@ -256,25 +303,31 @@ function Thread({
 
   async function cancel() {
     const run = thread.activeRun;
-    if (!run) return;
+    if (!run || runBusy) return;
+    setRunBusy(true);
     setRunError(null);
     try {
       const result = await window.opensquad.cancelRun({ runId: run.id });
       apply({ type: "run.updated", payload: result });
     } catch (error) {
       setRunError(error instanceof Error ? error.message : "Unable to cancel run");
+    } finally {
+      setRunBusy(false);
     }
   }
 
   async function reconcile() {
     const run = thread.activeRun;
-    if (!run) return;
+    if (!run || runBusy) return;
+    setRunBusy(true);
     setRunError(null);
     try {
       const result = await window.opensquad.reconcileRun({ runId: run.id });
       apply({ type: "run.updated", payload: result });
     } catch (error) {
       setRunError(error instanceof Error ? error.message : "Unable to reconcile run");
+    } finally {
+      setRunBusy(false);
     }
   }
 
@@ -353,15 +406,25 @@ function Thread({
           {runError}
         </p>
       )}
-      {(activeRun || runNeedsReconcile(activeRun)) && (
+      {activeRun && (
         <div className="chat-run-actions">
-          {activeRun && !activeRun.cancelRequested && (
-            <button type="button" className="button secondary" onClick={() => void cancel()}>
+          {!activeRun.cancelRequested && (
+            <button
+              type="button"
+              className="button secondary"
+              disabled={runBusy}
+              onClick={() => void cancel()}
+            >
               Cancel
             </button>
           )}
           {runNeedsReconcile(activeRun) && (
-            <button type="button" className="button secondary" onClick={() => void reconcile()}>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={runBusy}
+              onClick={() => void reconcile()}
+            >
               Reconcile
             </button>
           )}

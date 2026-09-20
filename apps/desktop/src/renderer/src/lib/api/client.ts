@@ -74,6 +74,7 @@ function parseMessage(value: unknown): ConversationMessage {
   for (const key of ["id", "conversationId", "participantId", "runId", "sequence", "createdAt"]) {
     if (typeof value[key] !== "string") invalid();
   }
+  if (!/^\d+$/.test(value.sequence as string)) invalid();
   if (value.role !== "user" && value.role !== "assistant") invalid();
   if (!Array.isArray(value.content)) invalid();
   const content = value.content.map(parseContentPart);
@@ -98,24 +99,30 @@ export class ApiClient {
   constructor(readonly baseUrl: string) {}
 
   getUserId(): Promise<string> {
-    this.userId ??= this.get<unknown>("/me").then((value) => {
-      if (!isRecord(value) || typeof value.userId !== "string") {
-        throw new Error("Invalid user response");
-      }
-      return value.userId;
-    });
+    this.userId ??= this.get<unknown>("/me").then(
+      (value) => {
+        if (!isRecord(value) || typeof value.userId !== "string") {
+          throw new Error("Invalid user response");
+        }
+        return value.userId;
+      },
+      (error: unknown) => {
+        this.userId = undefined;
+        throw error;
+      },
+    );
     return this.userId;
   }
 
   async listConversations(
     agentId: string,
+    cursor?: string | null,
     signal?: AbortSignal,
   ): Promise<{ items: ConversationSummary[]; nextCursor: string | null }> {
-    const value = await this.get<unknown>(
-      `/conversations?agentId=${encodeURIComponent(agentId)}&limit=100`,
-      signal,
-    );
-    return parsePage(value, parseConversationSummary);
+    const path =
+      `/conversations?agentId=${encodeURIComponent(agentId)}&limit=100` +
+      (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+    return parsePage(await this.get<unknown>(path, signal), parseConversationSummary);
   }
 
   async createConversation(agentId: string): Promise<{ conversation: ConversationSummary }> {
