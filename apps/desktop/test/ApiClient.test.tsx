@@ -107,3 +107,108 @@ describe("bot HTTP client", () => {
     );
   });
 });
+
+const conversation = { id: "c-1", title: null, createdAt: "2026-09-15T00:00:00.000Z" };
+const message = {
+  id: "m-1",
+  conversationId: "c-1",
+  participantId: "p-1",
+  runId: "r-1",
+  sequence: "2",
+  role: "assistant",
+  content: [{ index: 0, type: "text", text: "hi", completed: false }],
+  phase: null,
+  status: "running",
+  createdAt: "2026-09-15T00:00:00.000Z",
+};
+
+describe("conversation client", () => {
+  it("lists conversations for an agent with an encoded query", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ items: [conversation], nextCursor: "next-1" })),
+    );
+    expect(await api.listConversations("bot id")).toEqual({
+      items: [conversation],
+      nextCursor: "next-1",
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:3000/conversations?agentId=bot%20id&limit=100",
+      expect.objectContaining({ redirect: "error" }),
+    );
+  });
+
+  it("creates a conversation with the cached /me user id", async () => {
+    const client = new ApiClient("http://localhost:3000/");
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ userId: "dev-user" })));
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ conversation })));
+    await client.createConversation("agent-1");
+    expect(fetch).toHaveBeenNthCalledWith(1, "http://localhost:3000/me", expect.anything());
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:3000/conversations",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          participants: [
+            { kind: "user", refId: "dev-user" },
+            { kind: "agent", refId: "agent-1" },
+          ],
+        }),
+      }),
+    );
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ conversation })));
+    await client.createConversation("agent-2");
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:3000/conversations",
+      expect.objectContaining({
+        body: JSON.stringify({
+          participants: [
+            { kind: "user", refId: "dev-user" },
+            { kind: "agent", refId: "agent-2" },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("lists messages with an optional encoded cursor", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ items: [message], nextCursor: null })),
+    );
+    expect(await api.listMessages("c 1", null)).toEqual({ items: [message], nextCursor: null });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/conversations/c%201/messages?limit=50",
+      expect.anything(),
+    );
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: "older" })));
+    expect(await api.listMessages("c-1", "cur sor")).toEqual({ items: [], nextCursor: "older" });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/conversations/c-1/messages?limit=50&cursor=cur%20sor",
+      expect.anything(),
+    );
+  });
+
+  it("rejects malformed conversation payloads and preserves HTTP status", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    for (const body of [
+      { items: [{ id: "c-1" }], nextCursor: null },
+      { items: [{ ...message, role: "system" }], nextCursor: null },
+      { items: [{ ...message, content: [{ index: 0, type: "text", text: 1 }] }], nextCursor: null },
+      { items: [{ ...message, status: "queued" }], nextCursor: null },
+      { items: [{ ...message, phase: "draft" }], nextCursor: null },
+      { items: [{ ...message, sequence: 2 }], nextCursor: null },
+    ]) {
+      fetch.mockResolvedValueOnce(new Response(JSON.stringify(body)));
+      await expect(api.listMessages("c-1", null)).rejects.toThrow("Invalid conversation response");
+    }
+    fetch.mockResolvedValueOnce(new Response("nope", { status: 502 }));
+    await expect(api.listConversations("a")).rejects.toEqual(
+      new ApiError(502, "API returned status 502"),
+    );
+  });
+});
