@@ -1,22 +1,53 @@
-import { electronApp, optimizer } from "@electron-toolkit/utils";
-import { app, BrowserWindow } from "electron";
+import { electronApp, is, optimizer } from "@electron-toolkit/utils";
+import { app, BrowserWindow, safeStorage } from "electron";
+import { config } from "./config.js";
 import { registerIpc } from "./ipc.js";
+import { createRuntimeCommands } from "./runtime-commands.js";
+import { createRuntimeCredentialVault } from "./runtime-credentials.js";
 import { createMainWindow } from "./window.js";
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId("com.opensquad.app");
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  let mainWindow: BrowserWindow | null = null;
+  let ipc: ReturnType<typeof registerIpc> | null = null;
 
-  // F12 toggles devtools in dev, and Cmd/Ctrl+R is ignored in production.
-  app.on("browser-window-created", (_, window) => optimizer.watchWindowShortcuts(window));
-
-  registerIpc();
-  createMainWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  app.on("second-instance", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
   });
-});
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+  app.whenReady().then(() => {
+    electronApp.setAppUserModelId("com.opensquad.app");
+
+    // F12 toggles devtools in dev, and Cmd/Ctrl+R is ignored in production.
+    app.on("browser-window-created", (_, window) => optimizer.watchWindowShortcuts(window));
+
+    const vault = createRuntimeCredentialVault({
+      apiBaseUrl: config.apiBaseUrl,
+      development: is.dev,
+      packaged: app.isPackaged,
+      platform: process.platform,
+      userDataPath: app.getPath("userData"),
+      safeStorage,
+    });
+    const commands = createRuntimeCommands({ vault, fetch });
+    ipc = registerIpc({ vault, commands });
+
+    mainWindow = createMainWindow(ipc);
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        mainWindow = createMainWindow(ipc as NonNullable<typeof ipc>);
+      }
+    });
+  });
+
+  app.on("will-quit", () => ipc?.shutdown());
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+}

@@ -2,6 +2,8 @@ import { join } from "node:path";
 import { is } from "@electron-toolkit/utils";
 import { BrowserWindow, shell } from "electron";
 import { config } from "./config.js";
+import type { IpcController } from "./ipc.js";
+import { isExpectedRendererUrl } from "./renderer-url.js";
 
 // Dev needs inline script + style for Vite HMR and React Fast Refresh. Production is strict.
 const CSP = [
@@ -12,7 +14,7 @@ const CSP = [
   `img-src 'self' data: blob: https: ${new URL(config.apiBaseUrl).origin}`,
 ].join("; ");
 
-export function createMainWindow(): BrowserWindow {
+export function createMainWindow(ipc: IpcController): BrowserWindow {
   const window = new BrowserWindow({
     width: 1100,
     height: 720,
@@ -50,7 +52,7 @@ export function createMainWindow(): BrowserWindow {
 
   // The renderer only ever shows our own bundle. Any other navigation is blocked.
   window.webContents.on("will-navigate", (event, url) => {
-    if (!isOwnRenderer(url)) event.preventDefault();
+    if (!isExpectedRendererUrl(url)) event.preventDefault();
   });
 
   // No camera, mic, geolocation, notifications etc. until a feature needs one.
@@ -60,6 +62,8 @@ export function createMainWindow(): BrowserWindow {
 
   window.on("ready-to-show", () => window.show());
 
+  ipc.trustWindow(window);
+
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
@@ -67,11 +71,4 @@ export function createMainWindow(): BrowserWindow {
   }
 
   return window;
-}
-
-function isOwnRenderer(url: string): boolean {
-  return (
-    url.startsWith("file://") ||
-    (is.dev && url.startsWith(process.env.ELECTRON_RENDERER_URL ?? "\0"))
-  );
 }
