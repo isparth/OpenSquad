@@ -181,8 +181,22 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   );
   app.get(
     "/conversations",
-    { schema: { querystring: z.strictObject({ limit, cursor: cursor.optional() }) } },
-    (request) => service.list(request.userId as string, request.query.limit, request.query.cursor),
+    {
+      schema: {
+        querystring: z.strictObject({
+          limit,
+          cursor: cursor.optional(),
+          agentId: z.uuid().optional(),
+        }),
+      },
+    },
+    (request) =>
+      service.list(
+        request.userId as string,
+        request.query.limit,
+        request.query.cursor,
+        request.query.agentId,
+      ),
   );
   app.get("/conversations/:id", { schema: { params: idParams } }, async (request) => {
     const { snapshot } = await service.snapshot(request.userId as string, request.params.id);

@@ -8,6 +8,7 @@ import {
   participants,
 } from "@opensquad/db";
 import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   ConversationError,
   conversationDto,
@@ -94,8 +95,9 @@ export function conversationsService(db: Database) {
         ]);
         return { conversation: conversationDto(row) };
       }),
-    list: async (ownerId: string, limit: number, after?: string) => {
-      const rows = await db
+    list: async (ownerId: string, limit: number, after?: string, agentId?: string) => {
+      const agentParticipant = alias(participants, "agent_participant");
+      let query = db
         .select({ conversation: conversations })
         .from(conversations)
         .innerJoin(
@@ -106,6 +108,18 @@ export function conversationsService(db: Database) {
             eq(participants.refId, ownerId),
           ),
         )
+        .$dynamic();
+      if (agentId !== undefined) {
+        query = query.innerJoin(
+          agentParticipant,
+          and(
+            eq(agentParticipant.conversationId, conversations.id),
+            eq(agentParticipant.kind, "agent"),
+            eq(agentParticipant.refId, agentId),
+          ),
+        );
+      }
+      const rows = await query
         .where(
           and(eq(conversations.ownerId, ownerId), after ? gt(conversations.id, after) : undefined),
         )

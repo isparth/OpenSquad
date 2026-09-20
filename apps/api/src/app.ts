@@ -12,6 +12,7 @@ import type { Env } from "./config/env.js";
 import agentsRoutes from "./modules/agents/routes.js";
 import conversationsRoutes from "./modules/conversations/routes.js";
 import healthRoutes from "./modules/health/routes.js";
+import meRoutes from "./modules/me/routes.js";
 import capabilities from "./plugins/capabilities.js";
 import db from "./plugins/db.js";
 import envPlugin from "./plugins/env.js";
@@ -51,6 +52,7 @@ export async function buildApp(env: Env, options: BuildAppOptions = {}) {
   await app.register(healthRoutes);
   await app.register(agentsRoutes, { prefix: "/agents" });
   await app.register(conversationsRoutes);
+  await app.register(meRoutes);
 
   return app;
 }

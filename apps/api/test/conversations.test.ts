@@ -95,4 +95,47 @@ describe("conversation ownership and history", () => {
       );
     }
   });
+
+  it("filters the conversation list by agentId", async () => {
+    const service = agentsService(app.db);
+    const secondBot = await service.create({ ownerId: "dev-user", name: "Second bot" });
+    extraBots.push(secondBot.id);
+    const first = await create(agentId);
+    const second = await create(secondBot.id);
+    const third = await create(agentId);
+    for (const response of [first, second, third]) {
+      expect(response.statusCode).toBe(201);
+      created.push(response.json().conversation.id);
+    }
+    const filtered = await app.inject({
+      method: "GET",
+      url: `/conversations?agentId=${secondBot.id}`,
+    });
+    expect(filtered.statusCode).toBe(200);
+    expect(filtered.json().items.map((row: { id: string }) => row.id)).toEqual([
+      second.json().conversation.id,
+    ]);
+    const otherFiltered = await app.inject({
+      method: "GET",
+      url: `/conversations?agentId=${agentId}`,
+    });
+    const agentItems = otherFiltered.json().items.map((row: { id: string }) => row.id);
+    expect(agentItems).toEqual(
+      expect.arrayContaining([first.json().conversation.id, third.json().conversation.id]),
+    );
+    expect(agentItems).not.toContain(second.json().conversation.id);
+    expect(
+      (await app.inject({ method: "GET", url: `/conversations?agentId=${foreignId}` })).json()
+        .items,
+    ).toEqual([]);
+    expect(
+      (await app.inject({ method: "GET", url: "/conversations?agentId=not-a-uuid" })).statusCode,
+    ).toBe(400);
+  });
+
+  it("returns the current user id from /me", async () => {
+    const response = await app.inject({ method: "GET", url: "/me" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ userId: "dev-user" });
+  });
 });
