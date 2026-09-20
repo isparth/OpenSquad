@@ -19,5 +19,6 @@
     "src/shared/**/*",
     "test/**/*",
     "vitest.config.ts"
-  ]
+  ],
+  "exclude": ["test/**/*.test.ts"]
 }
