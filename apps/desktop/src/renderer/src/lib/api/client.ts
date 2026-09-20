@@ -99,18 +99,17 @@ export class ApiClient {
   constructor(readonly baseUrl: string) {}
 
   getUserId(): Promise<string> {
-    this.userId ??= this.get<unknown>("/me").then(
-      (value) => {
+    this.userId ??= this.get<unknown>("/me")
+      .then((value) => {
         if (!isRecord(value) || typeof value.userId !== "string") {
           throw new Error("Invalid user response");
         }
         return value.userId;
-      },
-      (error: unknown) => {
+      })
+      .catch((error: unknown) => {
         this.userId = undefined;
         throw error;
-      },
-    );
+      });
     return this.userId;
   }
 
