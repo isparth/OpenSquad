@@ -8,6 +8,12 @@ import { type DesktopBridge, IPC } from "../shared/ipc.js";
 const bridge: DesktopBridge = {
   getAppInfo: () => ipcRenderer.invoke(IPC.getAppInfo),
   getApiBaseUrl: () => ipcRenderer.invoke(IPC.getApiBaseUrl),
+  getRuntimeKeyStatus: () => ipcRenderer.invoke(IPC.getRuntimeKeyStatus),
+  setRuntimeKey: (key) => ipcRenderer.invoke(IPC.setRuntimeKey, key),
+  deleteRuntimeKey: () => ipcRenderer.invoke(IPC.deleteRuntimeKey),
+  sendMessage: (command) => ipcRenderer.invoke(IPC.sendMessage, command),
+  cancelRun: (command) => ipcRenderer.invoke(IPC.cancelRun, command),
+  reconcileRun: (command) => ipcRenderer.invoke(IPC.reconcileRun, command),
 };
 
 contextBridge.exposeInMainWorld("opensquad", bridge);
