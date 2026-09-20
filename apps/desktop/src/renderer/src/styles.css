@@ -555,7 +555,10 @@ input[type="file"]::file-selector-button {
   line-height: 1.7;
   margin-top: 12px;
 }
-
+.key-button {
+  margin-right: 8px;
+  font-size: 12px;
+}
 @media (max-width: 760px) {
   .app-main {
     padding: 20px;
