@@ -1,5 +1,6 @@
 import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
+import type { Capabilities } from "@opensquad/core";
 import Fastify from "fastify";
 import {
   serializerCompiler,
@@ -14,7 +15,11 @@ import capabilities from "./plugins/capabilities.js";
 import db from "./plugins/db.js";
 import envPlugin from "./plugins/env.js";
 
-export async function buildApp(env: Env) {
+export interface BuildAppOptions {
+  capabilities?: Partial<Capabilities>;
+}
+
+export async function buildApp(env: Env, options: BuildAppOptions = {}) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : { level: env.LOG_LEVEL },
   }).withTypeProvider<ZodTypeProvider>();
@@ -24,9 +29,9 @@ export async function buildApp(env: Env) {
 
   await app.register(envPlugin, { env });
   await app.register(sensible);
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: true, methods: ["GET", "HEAD", "POST", "PATCH", "DELETE"] });
   await app.register(db);
-  await app.register(capabilities);
+  await app.register(capabilities, { overrides: options.capabilities ?? {} });
   await app.register(auth);
 
   await app.register(healthRoutes);

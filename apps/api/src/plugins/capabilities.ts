@@ -9,8 +9,11 @@ declare module "fastify" {
 }
 
 export default fp(
-  async (app) => {
-    app.decorate("capabilities", buildCapabilities(app.env));
+  async (app, options: { overrides?: Partial<Capabilities> }) => {
+    const overrides = Object.fromEntries(
+      Object.entries(options.overrides ?? {}).filter(([, provider]) => provider !== undefined),
+    );
+    app.decorate("capabilities", { ...buildCapabilities(app.env), ...overrides });
   },
   { name: "capabilities", dependencies: ["env"] },
 );

@@ -9,7 +9,7 @@ const CSP = [
   is.dev ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
   is.dev ? "style-src 'self' 'unsafe-inline'" : "style-src 'self'",
   `connect-src 'self' ${config.apiBaseUrl}${is.dev ? " ws://localhost:*" : ""}`,
-  "img-src 'self' data: https:",
+  `img-src 'self' data: blob: https: ${new URL(config.apiBaseUrl).origin}`,
 ].join("; ");
 
 export function createMainWindow(): BrowserWindow {

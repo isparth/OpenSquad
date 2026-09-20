@@ -1,5 +1,10 @@
 import { type AgentRow, agents, type Database, type NewAgentRow } from "@opensquad/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+
+export type AgentUpdate = {
+  [Field in "name" | "label" | "description" | "instructions"]?: AgentRow[Field] | undefined;
+};
+const nextUpdatedAt = sql`greatest(clock_timestamp(), ${agents.updatedAt} + interval '1 millisecond')`;
 
 /** Data access for agents. Routes call this; this never touches HTTP. */
 export function agentsService(db: Database) {
@@ -21,12 +26,30 @@ export function agentsService(db: Database) {
       return row;
     },
 
-    delete: async (ownerId: string, id: string): Promise<boolean> => {
-      const rows = await db
+    update: async (ownerId: string, id: string, input: AgentUpdate): Promise<AgentRow | null> => {
+      const [row] = await db
+        .update(agents)
+        .set({ ...input, updatedAt: nextUpdatedAt })
+        .where(and(eq(agents.id, id), eq(agents.ownerId, ownerId)))
+        .returning();
+      return row ?? null;
+    },
+
+    setAvatar: (ownerId: string, id: string, avatarUrl: string) =>
+      db.transaction(async (tx) => {
+        const condition = and(eq(agents.id, id), eq(agents.ownerId, ownerId));
+        const [previous] = await tx.select().from(agents).where(condition).for("update");
+        if (!previous) return null;
+        await tx.update(agents).set({ avatarUrl, updatedAt: nextUpdatedAt }).where(condition);
+        return { previousUrl: previous.avatarUrl, avatarUrl };
+      }),
+
+    delete: async (ownerId: string, id: string): Promise<AgentRow | null> => {
+      const [row] = await db
         .delete(agents)
         .where(and(eq(agents.id, id), eq(agents.ownerId, ownerId)))
-        .returning({ id: agents.id });
-      return rows.length > 0;
+        .returning();
+      return row ?? null;
     },
   };
 }
