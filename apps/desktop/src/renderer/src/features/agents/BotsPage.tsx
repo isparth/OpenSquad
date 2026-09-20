@@ -1,18 +1,25 @@
 import { useState } from "react";
 import type { AgentRecord, ApiClient } from "@/lib/api/client.js";
+import { ChatView } from "../chat/ChatView.js";
+import { useRuntimeKey } from "../runtime-key/RuntimeKeyContext.js";
 import { AgentAvatar } from "./AgentAvatar.js";
 import { AgentDetails } from "./AgentDetails.js";
 import { AgentForm } from "./AgentForm.js";
 import { useApiResource } from "./useApiResource.js";
 
 const loadAgents = (api: ApiClient, signal: AbortSignal) => api.listAgents(signal);
-type View = { kind: "empty" } | { kind: "create" } | { kind: "detail"; id: string };
+type View =
+  | { kind: "empty" }
+  | { kind: "create" }
+  | { kind: "detail"; id: string }
+  | { kind: "chat"; id: string };
 
 export function BotsPage() {
   const { data: agents, error, loading, refresh } = useApiResource(loadAgents);
   const [view, setView] = useState<View>({ kind: "empty" });
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  const { openKeyDialog } = useRuntimeKey();
   const filtered =
     agents?.filter((agent) =>
       `${agent.name} ${agent.label ?? ""}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
@@ -94,9 +101,13 @@ export function BotsPage() {
               <li key={agent.id}>
                 <button
                   type="button"
-                  className={`bot-list-item${view.kind === "detail" && view.id === agent.id ? " selected" : ""}`}
+                  className={`bot-list-item${(view.kind === "detail" || view.kind === "chat") && view.id === agent.id ? " selected" : ""}`}
                   aria-label={`${agent.name} ${agent.label || "No label"}`}
-                  aria-current={view.kind === "detail" && view.id === agent.id ? "true" : undefined}
+                  aria-current={
+                    (view.kind === "detail" || view.kind === "chat") && view.id === agent.id
+                      ? "true"
+                      : undefined
+                  }
                   disabled={busy}
                   onClick={() => setView({ kind: "detail", id: agent.id })}
                 >
@@ -134,6 +145,15 @@ export function BotsPage() {
                 refresh();
               }}
               onBusyChange={setBusy}
+              onOpenChat={() => setView({ kind: "chat", id: view.id })}
+            />
+          )}
+          {view.kind === "chat" && (
+            <ChatView
+              key={view.id}
+              id={view.id}
+              onBack={() => setView({ kind: "detail", id: view.id })}
+              onOpenKeySettings={openKeyDialog}
             />
           )}
           {view.kind === "empty" && (

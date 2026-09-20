@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BotsPage } from "@/features/agents/BotsPage.js";
+import { RuntimeKeyProvider } from "@/features/runtime-key/RuntimeKeyContext.js";
 import { type AgentRecord, ApiError } from "@/lib/api/client.js";
 
 const api = vi.hoisted(() => ({
@@ -31,6 +32,10 @@ beforeEach(() => {
   vi.resetAllMocks();
   api.listAgents.mockResolvedValue([alice]);
   api.getAgent.mockResolvedValue(alice);
+  vi.mocked(window.opensquad.getRuntimeKeyStatus).mockResolvedValue({
+    state: "unavailable",
+    reason: "not-configured",
+  });
   vi.stubGlobal(
     "URL",
     Object.assign(URL, {
@@ -51,7 +56,11 @@ afterEach(() => {
 });
 
 async function openAlice() {
-  render(<BotsPage />);
+  render(
+    <RuntimeKeyProvider>
+      <BotsPage />
+    </RuntimeKeyProvider>,
+  );
   fireEvent.click(await screen.findByRole("button", { name: /Alice Research/ }));
   return screen.findByRole("heading", { name: "Alice" });
 }
@@ -66,7 +75,11 @@ describe("bot management", () => {
 
   it("shows an actionable empty state", async () => {
     api.listAgents.mockResolvedValue([]);
-    render(<BotsPage />);
+    render(
+      <RuntimeKeyProvider>
+        <BotsPage />
+      </RuntimeKeyProvider>,
+    );
     expect(await screen.findByText("No bots yet")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New bot" })).toBeEnabled();
   });
@@ -75,7 +88,11 @@ describe("bot management", () => {
     const bob = { ...alice, id: "22222222-2222-4222-8222-222222222222", name: "Bob", label: null };
     api.createAgent.mockResolvedValue(bob);
     api.getAgent.mockResolvedValue(bob);
-    render(<BotsPage />);
+    render(
+      <RuntimeKeyProvider>
+        <BotsPage />
+      </RuntimeKeyProvider>,
+    );
     fireEvent.click(screen.getByRole("button", { name: "New bot" }));
     fireEvent.change(screen.getByLabelText("Bot name"), { target: { value: "Bob" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "A helpful bot" } });
@@ -115,7 +132,11 @@ describe("bot management", () => {
         rejectSave = reject;
       }),
     );
-    render(<BotsPage />);
+    render(
+      <RuntimeKeyProvider>
+        <BotsPage />
+      </RuntimeKeyProvider>,
+    );
     fireEvent.click(screen.getByRole("button", { name: "New bot" }));
     fireEvent.change(screen.getByLabelText("Bot name"), { target: { value: "Draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
@@ -129,7 +150,11 @@ describe("bot management", () => {
 
   it("shows a not-found state when the selected bot disappears", async () => {
     api.getAgent.mockRejectedValue(new ApiError(404, "Not found"));
-    render(<BotsPage />);
+    render(
+      <RuntimeKeyProvider>
+        <BotsPage />
+      </RuntimeKeyProvider>,
+    );
     fireEvent.click(await screen.findByRole("button", { name: /Alice Research/ }));
     expect(await screen.findByRole("heading", { name: "Bot not found" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit bot" })).not.toBeInTheDocument();
@@ -175,7 +200,11 @@ describe("bot management", () => {
 
   it("shows list failures and supports retry", async () => {
     api.listAgents.mockRejectedValueOnce(new Error("API unavailable"));
-    render(<BotsPage />);
+    render(
+      <RuntimeKeyProvider>
+        <BotsPage />
+      </RuntimeKeyProvider>,
+    );
     expect(await screen.findByRole("alert")).toHaveTextContent("API unavailable");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("button", { name: /Alice Research/ })).toBeInTheDocument();
