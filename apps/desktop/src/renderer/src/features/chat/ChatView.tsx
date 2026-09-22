@@ -102,6 +102,7 @@ function Chat({
     nextCursor: string | null;
   } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
   const seen = new Set<string>();
   const conversations = [...(more?.items ?? []), ...(conversationPage?.items ?? [])]
     .filter((conversation) => {
@@ -118,6 +119,7 @@ function Chat({
   async function loadMore() {
     if (listCursor === null || loadingMore) return;
     setLoadingMore(true);
+    setMoreError(null);
     try {
       const api = await getApiClient();
       const page = await api.listConversations(agent.id, listCursor);
@@ -126,7 +128,7 @@ function Chat({
         nextCursor: page.nextCursor,
       }));
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : "Unable to load conversations");
+      setMoreError(error instanceof Error ? error.message : "Unable to load conversations");
     } finally {
       setLoadingMore(false);
     }
@@ -134,6 +136,7 @@ function Chat({
 
   function refreshList() {
     setMore(null);
+    setMoreError(null);
     refreshConversations();
   }
 
@@ -229,6 +232,11 @@ function Chat({
               >
                 {loadingMore ? "Loading…" : "Load more"}
               </button>
+              {moreError && (
+                <p role="alert" className="error-message">
+                  {moreError}
+                </p>
+              )}
             </div>
           )}
         </aside>

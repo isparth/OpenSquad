@@ -215,6 +215,30 @@ describe("chat view", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
 
+  it("shows a paging failure next to Load more, not in the New conversation slot", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const parsed = new URL(url);
+      if (parsed.pathname === "/conversations" && parsed.searchParams.get("cursor") === "page-2") {
+        return Promise.resolve(new Response("boom", { status: 500 }));
+      }
+      if (parsed.pathname === "/conversations") {
+        return Promise.resolve(Response.json({ items: [conversation], nextCursor: "page-2" }));
+      }
+      return routedFetch(input);
+    });
+    renderChat();
+    await screen.findByRole("button", { name: /Conversation ·/ });
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("API returned status 500");
+    const earlier = document.querySelector(".chat-earlier");
+    expect(earlier).not.toBeNull();
+    expect(earlier?.contains(alert)).toBe(true);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Load more" })).toBeEnabled();
+  });
+
   it("sends a message, streams the reply, and re-enables the composer", async () => {
     renderChat();
     const source = await selectConversation();
