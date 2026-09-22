@@ -13,6 +13,7 @@ export function AgentDetails({
   onDeleted,
   onBusyChange,
   onOpenChat,
+  startEditing,
 }: {
   id: string;
   busy: boolean;
@@ -20,10 +21,11 @@ export function AgentDetails({
   onDeleted: () => void;
   onBusyChange: (busy: boolean) => void;
   onOpenChat: () => void;
+  startEditing?: boolean;
 }) {
   const load = useCallback((api: ApiClient, signal: AbortSignal) => api.getAgent(id, signal), [id]);
   const { data: agent, error, loading, refresh } = useApiResource(load);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(startEditing ?? false);
   const [deleting, setDeleting] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const editButton = useRef<HTMLButtonElement>(null);

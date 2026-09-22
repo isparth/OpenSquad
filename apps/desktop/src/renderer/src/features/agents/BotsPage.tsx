@@ -12,6 +12,7 @@ type View =
   | { kind: "empty" }
   | { kind: "create" }
   | { kind: "detail"; id: string }
+  | { kind: "settings"; id: string }
   | { kind: "chat"; id: string };
 
 export function BotsPage() {
@@ -24,6 +25,8 @@ export function BotsPage() {
     agents?.filter((agent) =>
       `${agent.name} ${agent.label ?? ""}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
     ) ?? [];
+  const selectedId =
+    view.kind === "detail" || view.kind === "settings" || view.kind === "chat" ? view.id : null;
   function saved(agent: AgentRecord) {
     setView({ kind: "detail", id: agent.id });
     refresh();
@@ -101,20 +104,16 @@ export function BotsPage() {
               <li key={agent.id}>
                 <button
                   type="button"
-                  className={`bot-list-item${(view.kind === "detail" || view.kind === "chat") && view.id === agent.id ? " selected" : ""}`}
-                  aria-label={`${agent.name} ${agent.label || "No label"}`}
-                  aria-current={
-                    (view.kind === "detail" || view.kind === "chat") && view.id === agent.id
-                      ? "true"
-                      : undefined
-                  }
+                  className={`bot-list-item${selectedId === agent.id ? " selected" : ""}`}
+                  aria-label={agent.label ? `${agent.name} ${agent.label}` : agent.name}
+                  aria-current={selectedId === agent.id ? "true" : undefined}
                   disabled={busy}
-                  onClick={() => setView({ kind: "detail", id: agent.id })}
+                  onClick={() => setView({ kind: "chat", id: agent.id })}
                 >
                   <AgentAvatar agent={agent} />
                   <span className="bot-list-copy">
                     <span className="bot-list-name">{agent.name}</span>
-                    <span className="muted">{agent.label || "No label"}</span>
+                    {agent.label && <span className="muted">{agent.label}</span>}
                   </span>
                   <span className="list-chevron" aria-hidden="true">
                     ›
@@ -148,11 +147,27 @@ export function BotsPage() {
               onOpenChat={() => setView({ kind: "chat", id: view.id })}
             />
           )}
+          {view.kind === "settings" && (
+            <AgentDetails
+              key={`settings-${view.id}`}
+              id={view.id}
+              busy={busy}
+              onChanged={refresh}
+              onDeleted={() => {
+                setView({ kind: "empty" });
+                refresh();
+              }}
+              onBusyChange={setBusy}
+              onOpenChat={() => setView({ kind: "chat", id: view.id })}
+              startEditing
+            />
+          )}
           {view.kind === "chat" && (
             <ChatView
               key={view.id}
               id={view.id}
-              onBack={() => setView({ kind: "detail", id: view.id })}
+              onOpenProfile={() => setView({ kind: "detail", id: view.id })}
+              onOpenSettings={() => setView({ kind: "settings", id: view.id })}
               onOpenKeySettings={openKeyDialog}
             />
           )}
@@ -163,7 +178,7 @@ export function BotsPage() {
               </span>
               <h2>Make room for your next teammate.</h2>
               <p className="muted">
-                Select a bot to see its profile, or create one with a name, a purpose, and a way of
+                Select a bot to open its chat, or create one with a name, a purpose, and a way of
                 working.
               </p>
               <p className="workspace-note">No model key needed to manage your bots.</p>
