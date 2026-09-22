@@ -30,8 +30,8 @@ function canRemove(status: RuntimeKeyStatus | null): boolean {
 
 function canSave(status: RuntimeKeyStatus | null): boolean {
   return (
-    status !== null &&
-    (status.state === "configured" || status.reason !== "secure-storage-unavailable")
+    status?.state === "configured" ||
+    (status?.state === "unavailable" && status.reason === "not-configured")
   );
 }
 

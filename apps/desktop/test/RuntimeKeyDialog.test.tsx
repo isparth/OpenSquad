@@ -118,6 +118,35 @@ describe("runtime key dialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("vault write failed");
   });
 
+  it.each([
+    "secure-storage-unavailable",
+    "authentication-required",
+    "origin-not-allowed",
+    "origin-changed",
+    "corrupt-storage",
+  ] as const)("disables key entry while the vault reports %s", async (reason) => {
+    vi.mocked(window.opensquad.getRuntimeKeyStatus).mockResolvedValue({
+      state: "unavailable",
+      reason,
+    });
+    renderDialog();
+    const input = await screen.findByLabelText("Runtime key", { selector: "input" });
+    expect(input).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    if (reason === "origin-changed" || reason === "corrupt-storage") {
+      expect(screen.getByRole("button", { name: "Remove" })).toBeEnabled();
+    }
+  });
+
+  it("keeps key entry enabled while a key is configured", async () => {
+    vi.mocked(window.opensquad.getRuntimeKeyStatus).mockResolvedValue({ state: "configured" });
+    renderDialog();
+    const input = await screen.findByLabelText("Runtime key", { selector: "input" });
+    expect(input).toBeEnabled();
+    fireEvent.change(input, { target: { value: "sk-new" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
   it("keeps Save disabled while the key is blank or whitespace", async () => {
     vi.mocked(window.opensquad.getRuntimeKeyStatus).mockResolvedValue({
       state: "unavailable",
