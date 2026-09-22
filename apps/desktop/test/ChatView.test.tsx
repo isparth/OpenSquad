@@ -152,6 +152,11 @@ afterEach(() => {
 });
 
 describe("chat view", () => {
+  it("moves focus to the chat heading on open", async () => {
+    renderChat();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Alice" })).toHaveFocus());
+  });
+
   it("auto-selects the latest conversation and opens its stream", async () => {
     renderChat();
     const button = await screen.findByRole("button", { name: /Conversation ·/ });

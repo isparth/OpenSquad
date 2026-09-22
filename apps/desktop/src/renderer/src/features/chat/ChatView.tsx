@@ -71,7 +71,7 @@ export function ChatView({
             : (error?.message ?? "")}
         </p>
         <button type="button" className="button secondary" onClick={onOpenProfile}>
-          Profile
+          Back
         </button>
       </div>
     );
@@ -125,13 +125,19 @@ function Chat({
   const listCursor = more ? more.nextCursor : (conversationPage?.nextCursor ?? null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const autoSelected = useRef(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+  }, []);
   useEffect(() => {
     if (conversationId !== null || !conversationPage || autoSelected.current) return;
-    autoSelected.current = true;
     const latest = [...conversationPage.items].sort(
       (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
     )[0];
-    setConversationId(latest?.id ?? null);
+    if (latest) {
+      autoSelected.current = true;
+      setConversationId(latest.id);
+    }
   }, [conversationPage, conversationId]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -186,7 +192,9 @@ function Chat({
     <div className="chat-view">
       <div className="chat-header">
         <AgentAvatar agent={agent} />
-        <h2>{agent.name}</h2>
+        <h2 ref={heading} tabIndex={-1}>
+          {agent.name}
+        </h2>
         <div className="chat-header-actions">
           <button type="button" className="button secondary" onClick={onOpenProfile}>
             Profile
