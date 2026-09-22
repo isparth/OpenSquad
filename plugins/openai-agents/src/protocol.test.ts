@@ -153,6 +153,59 @@ describe("Agents protocol", () => {
     });
   });
 
+  it("prefers terminal event usage over a null embedded turn usage", () => {
+    const event = normalizeEvent({
+      ...turnEvent({ ...turn, status: "completed" }, "agent.session.turn.completed"),
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens_details: { reasoning_tokens: 0 },
+      },
+    });
+    expect(event).toMatchObject({
+      type: "turn.status",
+      turn: { usage: { inputTokens: 10, outputTokens: 20 } },
+    });
+  });
+
+  it("falls back to embedded turn usage when the event carries none", () => {
+    const event = normalizeEvent(
+      turnEvent(
+        { ...turn, status: "completed", usage: { input_tokens: 3, output_tokens: 4 } },
+        "agent.session.turn.completed",
+      ),
+    );
+    expect(event).toMatchObject({
+      turn: { usage: { inputTokens: 3, outputTokens: 4 } },
+    });
+  });
+
+  it("lets terminal event usage win when both are present", () => {
+    const event = normalizeEvent({
+      ...turnEvent(
+        {
+          ...turn,
+          status: "completed",
+          usage: { input_tokens: 3, output_tokens: 4 },
+        },
+        "agent.session.turn.completed",
+      ),
+      usage: { input_tokens: 10, output_tokens: 20 },
+    });
+    expect(event).toMatchObject({
+      turn: { usage: { inputTokens: 10, outputTokens: 20 } },
+    });
+  });
+
+  it("keeps usage null when neither the event nor the turn reports it", () => {
+    const event = normalizeEvent({
+      ...turnEvent({ ...turn, status: "completed" }, "agent.session.turn.completed"),
+      usage: null,
+    });
+    expect(event).toMatchObject({ turn: { usage: null } });
+  });
+
   it("normalizes legacy user messages with text and images", () => {
     expect(
       normalizeMessage({
