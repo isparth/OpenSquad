@@ -51,12 +51,13 @@ const sessionSchema = z.object({
   status: sessionStatusSchema,
   environment: z.object({ id, type: z.literal("openai_hosted") }),
 });
+const usageSchema = z.object({ input_tokens: z.number(), output_tokens: z.number() });
 const turnSchema = z.object({
   id,
   subagent_id: id.nullable(),
   status: z.enum(["queued", "in_progress", "waiting", "completed", "failed", "cancelled"]),
   error: errorSchema.nullable(),
-  usage: z.object({ input_tokens: z.number(), output_tokens: z.number() }).nullable(),
+  usage: usageSchema.nullable(),
 });
 const messageSchema = z.object({
   id: id.nullable(),
@@ -115,6 +116,10 @@ export function normalizeSession(input: unknown): RuntimeSession {
   };
 }
 
+function normalizeUsage(usage: z.infer<typeof usageSchema>): NonNullable<RuntimeTurn["usage"]> {
+  return { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens };
+}
+
 export function normalizeTurn(input: unknown): RuntimeTurn {
   const turn = parse(turnSchema, input);
   return {
@@ -122,9 +127,7 @@ export function normalizeTurn(input: unknown): RuntimeTurn {
     subagentExternalId: turn.subagent_id,
     status: turnStatuses[turn.status],
     error: turn.error ? normalizeError(turn.error) : null,
-    usage: turn.usage
-      ? { inputTokens: turn.usage.input_tokens, outputTokens: turn.usage.output_tokens }
-      : null,
+    usage: turn.usage ? normalizeUsage(turn.usage) : null,
   };
 }
 
@@ -172,6 +175,8 @@ export function normalizeEvent(input: unknown): RuntimeEvent | null {
     case "agent.session.turn.failed":
     case "agent.session.turn.cancelled": {
       const turn = normalizeTurn(event.turn);
+      const usage = parse(z.object({ usage: usageSchema.nullish() }), event).usage;
+      if (usage) turn.usage = normalizeUsage(usage);
       return { ...eventBase(event), turnExternalId: turn.externalId, type: "turn.status", turn };
     }
     case "agent.session.turn.output_text.delta":
