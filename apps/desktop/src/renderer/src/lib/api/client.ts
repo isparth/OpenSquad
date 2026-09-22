@@ -1,3 +1,5 @@
+import type { ConversationMessage, ConversationSummary, MessageContentPart } from "@opensquad/core";
+
 export interface AgentRecord {
   id: string;
   name: string;
@@ -40,9 +42,115 @@ export class ApiError extends Error {
   }
 }
 
+function invalid(): never {
+  throw new Error("Invalid conversation response");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseConversationSummary(value: unknown): ConversationSummary {
+  if (!isRecord(value)) invalid();
+  if (typeof value.id !== "string" || typeof value.createdAt !== "string") invalid();
+  if (value.title !== null && typeof value.title !== "string") invalid();
+  return { id: value.id, title: value.title, createdAt: value.createdAt };
+}
+
+function parseContentPart(value: unknown): MessageContentPart {
+  if (!isRecord(value)) invalid();
+  if (!Number.isInteger(value.index) || typeof value.completed !== "boolean") invalid();
+  if (value.type === "text" && typeof value.text === "string") {
+    return value as MessageContentPart;
+  }
+  if (value.type === "image" && typeof value.url === "string") {
+    return value as MessageContentPart;
+  }
+  invalid();
+}
+
+function parseMessage(value: unknown): ConversationMessage {
+  if (!isRecord(value)) invalid();
+  for (const key of ["id", "conversationId", "participantId", "runId", "sequence", "createdAt"]) {
+    if (typeof value[key] !== "string") invalid();
+  }
+  if (!/^\d+$/.test(value.sequence as string)) invalid();
+  if (value.role !== "user" && value.role !== "assistant") invalid();
+  if (!Array.isArray(value.content)) invalid();
+  const content = value.content.map(parseContentPart);
+  if (!["running", "completed", "incomplete"].includes(value.status as string)) invalid();
+  if (value.phase !== null && value.phase !== "commentary" && value.phase !== "final") invalid();
+  return { ...(value as object), content } as ConversationMessage;
+}
+
+function parsePage<T>(value: unknown, parseItem: (item: unknown) => T) {
+  if (!isRecord(value) || !Array.isArray(value.items)) invalid();
+  if (value.nextCursor !== null && typeof value.nextCursor !== "string") invalid();
+  return {
+    items: value.items.map(parseItem),
+    nextCursor: value.nextCursor as string | null,
+  };
+}
+
 /** Thin fetch wrapper for the OpenSquad API. Auth headers get added here once Clerk is wired in. */
 export class ApiClient {
-  constructor(private readonly baseUrl: string) {}
+  private userId: Promise<string> | undefined;
+
+  constructor(readonly baseUrl: string) {}
+
+  getUserId(): Promise<string> {
+    this.userId ??= this.get<unknown>("/me")
+      .then((value) => {
+        if (!isRecord(value) || typeof value.userId !== "string") {
+          throw new Error("Invalid user response");
+        }
+        return value.userId;
+      })
+      .catch((error: unknown) => {
+        this.userId = undefined;
+        throw error;
+      });
+    return this.userId;
+  }
+
+  async listConversations(
+    agentId: string,
+    cursor?: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ items: ConversationSummary[]; nextCursor: string | null }> {
+    const path =
+      `/conversations?agentId=${encodeURIComponent(agentId)}&limit=100` +
+      (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+    return parsePage(await this.get<unknown>(path, signal), parseConversationSummary);
+  }
+
+  async createConversation(agentId: string): Promise<{ conversation: ConversationSummary }> {
+    const userId = await this.getUserId();
+    const response = await this.request("/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        participants: [
+          { kind: "user", refId: userId },
+          { kind: "agent", refId: agentId },
+        ],
+      }),
+    });
+    const value: unknown = await response.json();
+    if (!isRecord(value)) invalid();
+    return { conversation: parseConversationSummary(value.conversation) };
+  }
+
+  async listMessages(
+    conversationId: string,
+    cursor: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ items: ConversationMessage[]; nextCursor: string | null }> {
+    const path =
+      `/conversations/${encodeURIComponent(conversationId)}/messages?limit=50` +
+      (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+    return parsePage(await this.get<unknown>(path, signal), parseMessage);
+  }
 
   health(): Promise<Health> {
     return this.get("/health");

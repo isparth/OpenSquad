@@ -12,12 +12,14 @@ export function AgentDetails({
   onChanged,
   onDeleted,
   onBusyChange,
+  onOpenChat,
 }: {
   id: string;
   busy: boolean;
   onChanged: () => void;
   onDeleted: () => void;
   onBusyChange: (busy: boolean) => void;
+  onOpenChat: () => void;
 }) {
   const load = useCallback((api: ApiClient, signal: AbortSignal) => api.getAgent(id, signal), [id]);
   const { data: agent, error, loading, refresh } = useApiResource(load);
@@ -82,6 +84,9 @@ export function AgentDetails({
           </h2>
           {agent.label && <span className="tag">{agent.label}</span>}
         </div>
+        <button type="button" className="button primary" disabled={busy} onClick={onOpenChat}>
+          Open chat
+        </button>
         <button
           ref={editButton}
           type="button"
@@ -114,7 +119,9 @@ export function AgentDetails({
         />
       </section>
       <div className="detail-footer">
-        <p className="muted">Saved to your workspace. Chat execution is not connected yet.</p>
+        <p className="muted">
+          Saved to your workspace. Chat uses the runtime key saved on this device.
+        </p>
         <button
           type="button"
           className="button danger-quiet"
