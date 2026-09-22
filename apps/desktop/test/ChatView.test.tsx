@@ -102,14 +102,20 @@ function routedFetch(input: RequestInfo | URL): Promise<Response> {
 }
 
 function renderChat(props: Partial<Parameters<typeof ChatView>[0]> = {}) {
-  const onBack = props.onBack ?? vi.fn();
+  const onOpenProfile = props.onOpenProfile ?? vi.fn();
+  const onOpenSettings = props.onOpenSettings ?? vi.fn();
   const onOpenKeySettings = props.onOpenKeySettings ?? vi.fn();
   render(
     <RuntimeKeyProvider>
-      <ChatView id={agent.id} onBack={onBack} onOpenKeySettings={onOpenKeySettings} />
+      <ChatView
+        id={agent.id}
+        onOpenProfile={onOpenProfile}
+        onOpenSettings={onOpenSettings}
+        onOpenKeySettings={onOpenKeySettings}
+      />
     </RuntimeKeyProvider>,
   );
-  return { onBack, onOpenKeySettings };
+  return { onOpenProfile, onOpenSettings, onOpenKeySettings };
 }
 
 async function selectConversation() {
@@ -146,6 +152,50 @@ afterEach(() => {
 });
 
 describe("chat view", () => {
+  it("auto-selects the latest conversation and opens its stream", async () => {
+    renderChat();
+    const button = await screen.findByRole("button", { name: /Conversation ·/ });
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+    expect(FakeEventSource.instances.at(-1)?.url).toContain("/conversations/c-1/events");
+    expect(button).toHaveAttribute("aria-current", "true");
+  });
+
+  it("auto-selects the newest conversation when several exist", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (new URL(url).pathname === "/conversations")
+        return Promise.resolve(Response.json({ items: [conversation, created], nextCursor: null }));
+      if (new URL(url).pathname === "/conversations/c-2/messages")
+        return Promise.resolve(Response.json({ items: [], nextCursor: null }));
+      return routedFetch(input);
+    });
+    renderChat();
+    await screen.findAllByRole("button", { name: /Conversation ·/ });
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+    expect(FakeEventSource.instances.at(-1)?.url).toContain("/conversations/c-2/events");
+  });
+
+  it("shows the empty state and opens no stream when there are no conversations", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (new URL(url).pathname === "/conversations")
+        return Promise.resolve(Response.json({ items: [], nextCursor: null }));
+      return routedFetch(input);
+    });
+    renderChat();
+    expect(await screen.findByText("Pick a conversation or start a new one.")).toBeInTheDocument();
+    await Promise.resolve();
+    expect(FakeEventSource.instances).toHaveLength(0);
+  });
+
+  it("calls the profile and settings callbacks from the header", async () => {
+    const { onOpenProfile, onOpenSettings } = renderChat();
+    fireEvent.click(await screen.findByRole("button", { name: "Profile" }));
+    expect(onOpenProfile).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("prompts for a runtime key when none is saved", async () => {
     vi.mocked(window.opensquad.getRuntimeKeyStatus).mockResolvedValue({
       state: "unavailable",

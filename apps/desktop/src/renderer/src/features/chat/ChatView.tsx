@@ -40,11 +40,13 @@ function authorName(
 
 export function ChatView({
   id,
-  onBack,
+  onOpenProfile,
+  onOpenSettings,
   onOpenKeySettings,
 }: {
   id: string;
-  onBack(): void;
+  onOpenProfile(): void;
+  onOpenSettings(): void;
   onOpenKeySettings(): void;
 }) {
   const load = useCallback((api: ApiClient, signal: AbortSignal) => api.getAgent(id, signal), [id]);
@@ -68,21 +70,30 @@ export function ChatView({
             ? "It may have been deleted or is no longer available to you."
             : (error?.message ?? "")}
         </p>
-        <button type="button" className="button secondary" onClick={onBack}>
-          Back
+        <button type="button" className="button secondary" onClick={onOpenProfile}>
+          Profile
         </button>
       </div>
     );
-  return <Chat agent={agent} onBack={onBack} onOpenKeySettings={onOpenKeySettings} />;
+  return (
+    <Chat
+      agent={agent}
+      onOpenProfile={onOpenProfile}
+      onOpenSettings={onOpenSettings}
+      onOpenKeySettings={onOpenKeySettings}
+    />
+  );
 }
 
 function Chat({
   agent,
-  onBack,
+  onOpenProfile,
+  onOpenSettings,
   onOpenKeySettings,
 }: {
   agent: AgentRecord;
-  onBack(): void;
+  onOpenProfile(): void;
+  onOpenSettings(): void;
   onOpenKeySettings(): void;
 }) {
   const { status: keyStatus } = useRuntimeKey();
@@ -113,6 +124,15 @@ function Chat({
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   const listCursor = more ? more.nextCursor : (conversationPage?.nextCursor ?? null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const autoSelected = useRef(false);
+  useEffect(() => {
+    if (conversationId !== null || !conversationPage || autoSelected.current) return;
+    autoSelected.current = true;
+    const latest = [...conversationPage.items].sort(
+      (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+    )[0];
+    setConversationId(latest?.id ?? null);
+  }, [conversationPage, conversationId]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -165,11 +185,16 @@ function Chat({
   return (
     <div className="chat-view">
       <div className="chat-header">
-        <button type="button" className="button text-button" onClick={onBack}>
-          ← Profile
-        </button>
         <AgentAvatar agent={agent} />
         <h2>{agent.name}</h2>
+        <div className="chat-header-actions">
+          <button type="button" className="button secondary" onClick={onOpenProfile}>
+            Profile
+          </button>
+          <button type="button" className="button secondary" onClick={onOpenSettings}>
+            Settings
+          </button>
+        </div>
       </div>
       <div className="chat-columns">
         <aside className="chat-list" aria-label="Conversations">

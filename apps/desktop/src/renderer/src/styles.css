@@ -576,6 +576,11 @@ input[type="file"]::file-selector-button {
   font-size: 16px;
   margin: 0;
 }
+.chat-header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+}
 .chat-columns {
   display: flex;
   flex: 1;
