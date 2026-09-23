@@ -237,6 +237,77 @@ describe("conversation client", () => {
     );
   });
 
+  it("accepts valid command content and rejects malformed command fields", async () => {
+    const commandPart = {
+      index: 0,
+      completed: true,
+      type: "command",
+      command: '/bin/bash -lc "cat file"',
+      cwd: "/workspace",
+      exitCode: 0,
+      durationMs: 400,
+      output: "hi",
+      outputTruncated: false,
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ items: [{ ...message, content: [commandPart] }], nextCursor: null }),
+      ),
+    );
+    expect(await api.listMessages("c-1", null)).toMatchObject({
+      items: [{ content: [commandPart] }],
+      nextCursor: null,
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              ...message,
+              content: [{ ...commandPart, exitCode: "0" }],
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
+    );
+    await expect(api.listMessages("c-1", null)).rejects.toThrow("Invalid conversation response");
+  });
+
+  it("accepts command content and rejects malformed command parts", async () => {
+    const command = {
+      index: 0,
+      completed: true,
+      type: "command",
+      command: '/bin/bash -lc "cat file"',
+      cwd: "/workspace",
+      exitCode: 0,
+      durationMs: 400,
+      output: "hi",
+      outputTruncated: false,
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ items: [{ ...message, content: [command] }], nextCursor: null }),
+      ),
+    );
+    expect(await api.listMessages("c-1", null)).toMatchObject({
+      items: [{ content: [command] }],
+      nextCursor: null,
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          items: [{ ...message, content: [{ ...command, durationMs: "400" }] }],
+          nextCursor: null,
+        }),
+      ),
+    );
+    await expect(api.listMessages("c-1", null)).rejects.toThrow("Invalid conversation response");
+  });
+
   it("rejects malformed conversation payloads and preserves HTTP status", async () => {
     const fetch = vi.mocked(globalThis.fetch);
     for (const body of [

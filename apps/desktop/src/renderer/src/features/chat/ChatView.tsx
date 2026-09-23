@@ -9,6 +9,7 @@ import { type AgentRecord, type ApiClient, ApiError, getApiClient } from "@/lib/
 import { AgentAvatar } from "../agents/AgentAvatar.js";
 import { useApiResource } from "../agents/useApiResource.js";
 import { useRuntimeKey } from "../runtime-key/RuntimeKeyContext.js";
+import { CommandRow } from "./CommandRow.js";
 import { useConversationStream } from "./useConversationStream.js";
 
 const RECONCILE_CODES = new Set(["uncertain_mutation", "worker_lost", "stream_disconnected"]);
@@ -21,11 +22,20 @@ function runNeedsReconcile(run: ConversationRun | null): boolean {
   );
 }
 
-function messageText(message: ConversationMessage): string {
-  return [...message.content]
-    .sort((a, b) => a.index - b.index)
-    .map((part) => (part.type === "text" ? part.text : "[image]"))
-    .join("");
+function MessageBody({ message }: { message: ConversationMessage }) {
+  return (
+    <>
+      {[...message.content]
+        .sort((a, b) => a.index - b.index)
+        .map((part) =>
+          part.type === "command" ? (
+            <CommandRow key={part.index} part={part} status={message.status} />
+          ) : (
+            <span key={part.index}>{part.type === "text" ? part.text : "[image]"}</span>
+          ),
+        )}
+    </>
+  );
 }
 
 function authorName(
@@ -373,6 +383,13 @@ function Thread({
   }
 
   const activeRun = thread.activeRun;
+  const environment =
+    thread.environment ?? (agent.sandboxEnabled ? { type: "hosted" as const, status: null } : null);
+  const startingSandbox =
+    activeRun !== null &&
+    environment?.type === "hosted" &&
+    environment.status !== "ready" &&
+    environment.status !== "connected";
   const composerDisabled = !!activeRun || !keyReady || pending !== null;
   const live = stream !== "closed" && stream !== "reconnecting";
 
@@ -404,17 +421,24 @@ function Thread({
           nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
         }}
       >
-        {thread.messages.map((message) => (
-          <li key={message.id} className={`chat-message ${message.role}`}>
-            <span className="chat-author">{authorName(message, thread.participants, agent)}</span>
-            <span className="chat-bubble">
-              {messageText(message)}
-              {message.role === "assistant" && message.status === "running" && (
-                <span aria-hidden="true"> …</span>
-              )}
-            </span>
-          </li>
-        ))}
+        {thread.messages.map((message) => {
+          const commentary = message.role === "assistant" && message.phase === "commentary";
+          const hasCommand = message.content.some((part) => part.type === "command");
+          return (
+            <li
+              key={message.id}
+              className={`chat-message ${message.role}${commentary ? " commentary" : ""}`}
+            >
+              <span className="chat-author">{authorName(message, thread.participants, agent)}</span>
+              <div className={commentary ? "chat-commentary" : "chat-bubble"}>
+                <MessageBody message={message} />
+                {message.role === "assistant" && message.status === "running" && !hasCommand && (
+                  <span aria-hidden="true"> …</span>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ol>
       <div className="chat-status-bar" role="status">
         {stream === "reconnecting" && <p className="muted">Reconnecting to live updates…</p>}
@@ -425,6 +449,10 @@ function Thread({
               Reconnect
             </button>
           </p>
+        )}
+        {startingSandbox && <p className="muted">Starting sandbox…</p>}
+        {environment?.status === "reset" && (
+          <p className="muted">The sandbox was restarted; files from earlier turns are gone.</p>
         )}
         {live && activeRun && (
           <p className="muted">

@@ -13,6 +13,7 @@ export type StreamStatus = "connecting" | "live" | "reconnecting" | "closed";
 const EVENT_TYPES = [
   "conversation.snapshot",
   "participant.updated",
+  "environment.updated",
   "message.created",
   "message.delta",
   "message.text.completed",
