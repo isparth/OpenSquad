@@ -6,6 +6,7 @@ export type ConversationRunStatus =
   | "failed"
   | "cancelled";
 export type RunObservation = "connected" | "disconnected" | "reconciliation_required";
+export type EnvironmentStatus = "pending" | "ready" | "connected" | "disconnected" | "reset";
 
 export interface ConversationSummary {
   id: string;
@@ -22,10 +23,20 @@ export interface ConversationParticipant {
   deletedAt: string | null;
 }
 
-export type MessageContentPart = {
-  index: number;
-  completed: boolean;
-} & ({ type: "text"; text: string } | { type: "image"; url: string });
+export type MessageContentPart =
+  | { index: number; completed: boolean; type: "text"; text: string }
+  | { index: number; completed: boolean; type: "image"; url: string }
+  | {
+      index: number;
+      completed: boolean;
+      type: "command";
+      command: string;
+      cwd: string | null;
+      exitCode: number | null;
+      durationMs: number | null;
+      output: string;
+      outputTruncated: boolean;
+    };
 
 export interface ConversationMessage {
   id: string;
@@ -62,11 +73,13 @@ export interface ConversationSnapshot {
   activeRun: ConversationRun | null;
   latestMessages: ConversationMessage[];
   nextMessageCursor: string | null;
+  environment: { type: "hosted" | "none"; status: EnvironmentStatus | null } | null;
 }
 
 export type ConversationEventType =
   | "conversation.snapshot"
   | "participant.updated"
+  | "environment.updated"
   | "message.created"
   | "message.delta"
   | "message.text.completed"

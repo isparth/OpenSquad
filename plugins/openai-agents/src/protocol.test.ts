@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as protocol from "./protocol.js";
 import {
   isTerminal,
   normalizeEvent,
@@ -30,6 +31,21 @@ const secret = "synthetic-secret-marker";
 
 function turnEvent(value: Record<string, unknown>, type = "agent.session.turn.failed") {
   return { type, event_id: "event_turn", session_id: session.id, turn_id: value.id, turn: value };
+}
+
+function commandItem(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "command_execution",
+    id: "exec_123",
+    turn_id: turn.id,
+    command: "/bin/bash -lc \"printf 'hi'\"",
+    cwd: "/workspace",
+    status: "completed",
+    output: "hi",
+    exit_code: 0,
+    duration_ms: 400,
+    ...overrides,
+  };
 }
 
 function environmentEvent(error: unknown) {
@@ -232,6 +248,139 @@ describe("Agents protocol", () => {
       ],
     });
   });
+
+  it.each([
+    ["in_progress", "running"],
+    ["completed", "completed"],
+    ["failed", "incomplete"],
+  ])("normalizes command execution status %s", (status, normalizedStatus) => {
+    expect(normalizeMessage(commandItem({ status }))).toEqual({
+      externalId: "exec_123",
+      turnExternalId: turn.id,
+      role: "assistant",
+      phase: null,
+      status: normalizedStatus,
+      content: [
+        {
+          type: "command",
+          command: "/bin/bash -lc \"printf 'hi'\"",
+          cwd: "/workspace",
+          exitCode: 0,
+          durationMs: 400,
+          output: "hi",
+          outputTruncated: false,
+        },
+      ],
+    });
+  });
+
+  it("normalizes null command execution fields to empty output and null metadata", () => {
+    expect(
+      normalizeMessage(
+        commandItem({
+          cwd: null,
+          status: "in_progress",
+          output: null,
+          exit_code: null,
+          duration_ms: null,
+        }),
+      ),
+    ).toMatchObject({
+      role: "assistant",
+      phase: null,
+      status: "running",
+      content: [
+        {
+          type: "command",
+          cwd: null,
+          exitCode: null,
+          durationMs: null,
+          output: "",
+          outputTruncated: false,
+        },
+      ],
+    });
+  });
+
+  it("caps command output only beyond the exported character limit", () => {
+    expect(protocol.COMMAND_OUTPUT_LIMIT).toBe(16_384);
+    const atLimit = "a".repeat(16_384);
+    const exact = normalizeMessage(commandItem({ output: atLimit }));
+    expect(exact?.content[0]).toMatchObject({ output: atLimit, outputTruncated: false });
+
+    const overLimit = normalizeMessage(commandItem({ output: `${atLimit}b` }));
+    expect(overLimit?.content[0]).toMatchObject({
+      output: `${"a".repeat(8_000)}\n… output truncated …\n${"a".repeat(7_999)}b`,
+      outputTruncated: true,
+    });
+  });
+
+  it("normalizes added and done command items but ignores other item types", () => {
+    const added = normalizeEvent({
+      type: "agent.session.turn.item.added",
+      event_id: "event_added",
+      session_id: session.id,
+      turn_id: turn.id,
+      item: commandItem({
+        status: "in_progress",
+        output: null,
+        exit_code: null,
+        duration_ms: null,
+      }),
+    });
+    expect(added).toMatchObject({
+      type: "message.completed",
+      externalId: "event_added",
+      sessionExternalId: session.id,
+      turnExternalId: turn.id,
+      message: { externalId: "exec_123", status: "running", content: [{ type: "command" }] },
+    });
+
+    const done = normalizeEvent({
+      type: "agent.session.turn.item.done",
+      event_id: "event_done",
+      session_id: session.id,
+      turn_id: turn.id,
+      item: commandItem(),
+    });
+    expect(done).toMatchObject({
+      type: "message.completed",
+      message: { externalId: "exec_123", status: "completed" },
+    });
+    for (const type of ["reasoning", "web_search_call"]) {
+      expect(normalizeMessage({ type, id: "other_item" })).toBeNull();
+      expect(
+        normalizeEvent({
+          type: "agent.session.turn.item.added",
+          event_id: `event_${type}`,
+          session_id: session.id,
+          turn_id: turn.id,
+          item: { type, id: "other_item" },
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it.each(["pending", "ready", "connected", "disconnected", "reset"])(
+    "normalizes environment %s events before the root turn exists",
+    (status) => {
+      expect(
+        normalizeEvent({
+          type: `agent.session.environment.${status}`,
+          event_id: `event_environment_${status}`,
+          session_id: session.id,
+          turn_id: null,
+          environment: { id: "env_123", type: "openai_hosted", status, error: null },
+        }),
+      ).toEqual({
+        externalId: `event_environment_${status}`,
+        sessionExternalId: session.id,
+        turnExternalId: null,
+        type: "environment.status",
+        status,
+      });
+    },
+  );
 
   it.each([
     ["context_length_exceeded", "The model context limit was exceeded"],

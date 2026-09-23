@@ -1,3 +1,5 @@
+import type { EnvironmentStatus } from "../primitives/conversation.js";
+
 export interface RuntimeCredentials {
   apiKey: string;
   mcp?: Record<string, { authorization?: string; headers?: Record<string, string> }>;
@@ -63,7 +65,19 @@ export interface RuntimeMessage {
   role: "user" | "assistant";
   status: "running" | "completed" | "incomplete";
   phase: "commentary" | "final" | null;
-  content: Array<{ type: "text"; text: string } | { type: "image"; url: string }>;
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "image"; url: string }
+    | {
+        type: "command";
+        command: string;
+        cwd: string | null;
+        exitCode: number | null;
+        durationMs: number | null;
+        output: string;
+        outputTruncated: boolean;
+      }
+  >;
 }
 
 export type RuntimeEvent = {
@@ -80,6 +94,7 @@ export type RuntimeEvent = {
       text: string;
     }
   | { type: "message.completed"; message: RuntimeMessage }
+  | { type: "environment.status"; status: EnvironmentStatus }
   | { type: "runtime.error"; code: string | null; message: string }
 );
 
