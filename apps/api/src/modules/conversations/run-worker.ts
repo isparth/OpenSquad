@@ -44,6 +44,7 @@ export async function executeRun(work: RunWork) {
     phase: "creating" | "sending" | "cancelling",
     call: () => Promise<T>,
     persist?: (value: T) => Promise<void>,
+    nextPhase: "subscribing" | "observing" = phase === "creating" ? "subscribing" : "observing",
   ) {
     signal.throwIfAborted();
     await owned(async (tx, run) => {
@@ -74,7 +75,7 @@ export async function executeRun(work: RunWork) {
     await owned((tx, run) =>
       saveRun(tx, run, {
         mutationInFlight: false,
-        phase: phase === "creating" ? "subscribing" : "observing",
+        phase: nextPhase,
       }),
     );
     return value;
@@ -120,6 +121,7 @@ export async function executeRun(work: RunWork) {
       return;
     }
     const created = !session.externalId;
+    const submitted = created && session.environment === "none";
     if (created) {
       if (mode !== "execute" || run.phase !== "admitted") {
         errorCode = "uncertain_mutation";
@@ -129,7 +131,12 @@ export async function executeRun(work: RunWork) {
         "creating",
         () =>
           runtime.createSession(
-            { instructions: session.instructions, model: session.model },
+            {
+              instructions: session.instructions,
+              model: session.model,
+              environment: session.environment,
+              ...(submitted ? { input: run.input } : {}),
+            },
             credentials,
             { signal },
           ),
@@ -143,6 +150,7 @@ export async function executeRun(work: RunWork) {
               .where(eq(runtimeSessions.id, session.id));
           });
         },
+        submitted ? "observing" : "subscribing",
       );
       ({ run, session } = await store.get(ownerId, runId));
     }
@@ -152,7 +160,8 @@ export async function executeRun(work: RunWork) {
     try {
       stream = await runtime.events(ref, credentials, { signal });
     } catch {
-      if (mode === "recover" && run.cancelRequested && !run.cancelDispatched) await cancel();
+      if ((mode === "recover" || submitted) && run.cancelRequested && !run.cancelDispatched)
+        await cancel();
       throw new Error("Subscription failed");
     }
     const subscription = stream;
@@ -174,7 +183,7 @@ export async function executeRun(work: RunWork) {
       }
     })();
 
-    if (mode === "execute") {
+    if (mode === "execute" && !submitted) {
       const baseline = created ? [] : await savedTurns(ref);
       if (baseline.some((turn) => !terminal(turn.status)))
         throw new Error("Session already has unresolved work");

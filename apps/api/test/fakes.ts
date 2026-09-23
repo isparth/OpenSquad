@@ -8,8 +8,8 @@ function unconfigured(method: keyof AgentRuntimeProvider): never {
 export class FakeRuntimeProvider implements AgentRuntimeProvider {
   readonly name = "fake-runtime";
   readonly features = {
-    hostedEnvironment: false,
-    environmentless: false,
+    hostedEnvironment: true,
+    environmentless: true,
     mcp: false,
     subagents: false,
     steering: false,

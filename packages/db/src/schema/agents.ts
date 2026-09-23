@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const agents = pgTable("agents", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -8,6 +8,7 @@ export const agents = pgTable("agents", {
   description: text("description").notNull().default(""),
   avatarUrl: text("avatar_url"),
   instructions: text("instructions").notNull().default(""),
+  sandboxEnabled: boolean("sandbox_enabled").notNull().default(false),
   // External provider references only. Postgres stays the source of truth. SPEC section 9.
   sandboxExternalId: text("sandbox_external_id"),
   memoryExternalId: text("memory_external_id"),

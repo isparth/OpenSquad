@@ -82,6 +82,8 @@ describe("agent editing", () => {
     { label: "a".repeat(51) },
     { description: "a".repeat(2001) },
     { instructions: "a".repeat(20001) },
+    { sandboxEnabled: "true" },
+    { sandboxEnabled: 1 },
     { name: null },
     { ownerId: "someone-else" },
     { avatarUrl: "https://invalid.example/image" },
@@ -91,6 +93,22 @@ describe("agent editing", () => {
     const response = await app.inject({ method: "PATCH", url: `/agents/${agent.id}`, payload });
     expect(response.statusCode).toBe(400);
     expect(await agentsService(app.db).get("dev-user", agent.id)).toEqual(agent);
+  });
+
+  it("toggles sandbox by itself and advances updatedAt", async () => {
+    const agent = await seed();
+    let previousUpdatedAt = agent.updatedAt.getTime();
+    for (const sandboxEnabled of [true, false]) {
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/agents/${agent.id}`,
+        payload: { sandboxEnabled },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().sandboxEnabled).toBe(sandboxEnabled);
+      expect(new Date(response.json().updatedAt).getTime()).toBeGreaterThan(previousUpdatedAt);
+      previousUpdatedAt = new Date(response.json().updatedAt).getTime();
+    }
   });
 
   it("returns 404 for missing and other-owner agents without modifying them", async () => {

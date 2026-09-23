@@ -60,6 +60,7 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   const admit = runAdmission(app.db, {
     provider: app.capabilities.runtime.name,
     model: app.env.RUNTIME_MODEL,
+    features: app.capabilities.runtime.features,
   });
   const streams = eventStreams(app.db);
   app.addHook("preClose", async () => {

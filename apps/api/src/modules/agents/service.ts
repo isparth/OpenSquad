@@ -19,7 +19,9 @@ export class AgentRunConflict extends Error {
 }
 
 export type AgentUpdate = {
-  [Field in "name" | "label" | "description" | "instructions"]?: AgentRow[Field] | undefined;
+  [Field in "name" | "label" | "description" | "instructions" | "sandboxEnabled"]?:
+    | AgentRow[Field]
+    | undefined;
 };
 const nextUpdatedAt = sql`greatest(clock_timestamp(), ${agents.updatedAt} + interval '1 millisecond')`;
 

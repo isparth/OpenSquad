@@ -88,10 +88,13 @@ export const runtimeSessions = pgTable(
     externalId: text("external_id"),
     instructions: text("instructions").notNull(),
     model: text("model").notNull(),
+    // Admission always sets this explicitly; the default preserves legacy hosted sessions.
+    environment: text("environment", { enum: ["hosted", "none"] }).notNull().default("hosted"),
   },
   (table) => [
     uniqueIndex("runtime_sessions_conversation_idx").on(table.conversationId),
     uniqueIndex("runtime_sessions_external_idx").on(table.provider, table.externalId),
+    check("runtime_sessions_environment_check", sql`${table.environment} in ('hosted', 'none')`),
   ],
 );
 

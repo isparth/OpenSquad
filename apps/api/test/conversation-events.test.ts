@@ -93,7 +93,11 @@ describe("product event streams over HTTP", () => {
       const snapshot = await next();
       expect(snapshot).toContain("event: conversation.snapshot");
       expect(snapshot).toContain("id: 0");
-      await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })(
+      await runAdmission(app.db, {
+        provider: "fake-runtime",
+        model: "test-model",
+        features: runtime.features,
+      })(
         "dev-user",
         conversationId,
         { text: "New message", clientRequestId: randomUUID() },
@@ -112,7 +116,11 @@ describe("product event streams over HTTP", () => {
   });
 
   it("replays only events after Last-Event-ID and rejects future/malformed cursors", async () => {
-    await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })(
+    await runAdmission(app.db, {
+        provider: "fake-runtime",
+        model: "test-model",
+        features: runtime.features,
+      })(
       "dev-user",
       conversationId,
       { text: "Saved", clientRequestId: randomUUID() },
@@ -162,7 +170,11 @@ describe("product event streams over HTTP", () => {
   });
 
   it("resets an expired cursor even when the retained event log is entirely empty", async () => {
-    await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })(
+    await runAdmission(app.db, {
+        provider: "fake-runtime",
+        model: "test-model",
+        features: runtime.features,
+      })(
       "dev-user",
       conversationId,
       { text: "Retained history", clientRequestId: randomUUID() },

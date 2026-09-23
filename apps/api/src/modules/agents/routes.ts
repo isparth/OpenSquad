@@ -13,6 +13,7 @@ const agentSchema = z.object({
   description: z.string(),
   avatarUrl: z.string().nullable(),
   instructions: z.string(),
+  sandboxEnabled: z.boolean(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -27,12 +28,14 @@ const editableFields = {
     .transform((value) => value || null),
   description: z.string().max(2000),
   instructions: z.string().max(20000),
+  sandboxEnabled: z.boolean(),
 };
 const createAgentSchema = z.object({
   ...editableFields,
   label: editableFields.label.optional(),
   description: editableFields.description.default(""),
   instructions: editableFields.instructions.default(""),
+  sandboxEnabled: editableFields.sandboxEnabled.default(false),
 });
 const updateAgentSchema = z
   .strictObject(editableFields)

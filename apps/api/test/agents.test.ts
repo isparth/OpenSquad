@@ -17,7 +17,12 @@ describe("agents", () => {
     });
     expect(created.statusCode).toBe(201);
     const agent = created.json();
-    expect(agent).toMatchObject({ name: "Alice", description: "Test agent", label: null });
+    expect(agent).toMatchObject({
+      name: "Alice",
+      description: "Test agent",
+      label: null,
+      sandboxEnabled: false,
+    });
 
     const fetched = await app.inject({ method: "GET", url: `/agents/${agent.id}` });
     expect(fetched.statusCode).toBe(200);
@@ -31,6 +36,20 @@ describe("agents", () => {
 
     const gone = await app.inject({ method: "GET", url: `/agents/${agent.id}` });
     expect(gone.statusCode).toBe(404);
+  });
+
+  it("creates an agent with sandbox enabled when requested", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/agents",
+      payload: { name: "Sandbox bot", sandboxEnabled: true },
+    });
+    expect(created.statusCode).toBe(201);
+    const agent = created.json();
+    expect(agent.sandboxEnabled).toBe(true);
+    expect((await app.inject({ method: "DELETE", url: `/agents/${agent.id}` })).statusCode).toBe(
+      204,
+    );
   });
 
   it("rejects an agent without a name", async () => {

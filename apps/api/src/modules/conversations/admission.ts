@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { AgentRuntimeProvider } from "@opensquad/core";
 import {
   agents,
   conversationMessages,
@@ -12,7 +13,14 @@ import { and, count, eq, gte, sql } from "drizzle-orm";
 import { ConversationError, messageDto, runDto } from "./dto.js";
 import { appendEvent, lockConversation, nextMessageSequence } from "./persistence.js";
 
-export function runAdmission(db: Database, config: { provider: string; model: string }) {
+export function runAdmission(
+  db: Database,
+  config: {
+    provider: string;
+    model: string;
+    features: AgentRuntimeProvider["features"];
+  },
+) {
   return async (
     ownerId: string,
     conversationId: string,
@@ -96,11 +104,23 @@ export function runAdmission(db: Database, config: { provider: string; model: st
         .select()
         .from(runtimeSessions)
         .where(eq(runtimeSessions.conversationId, conversationId));
+      const environment = agent.sandboxEnabled ? "hosted" : "none";
+      if (environment === "hosted" && !config.features.hostedEnvironment)
+        throw new ConversationError(
+          409,
+          "This runtime does not support sandboxes; turn off the bot's sandbox",
+        );
+      if (environment === "none" && !config.features.environmentless)
+        throw new ConversationError(
+          409,
+          "This runtime requires a sandbox; turn on the bot's sandbox",
+        );
       if (
         session &&
         (session.provider !== config.provider ||
           session.model !== config.model ||
-          session.instructions !== agent.instructions)
+          session.instructions !== agent.instructions ||
+          session.environment !== environment)
       )
         throw new ConversationError(
           409,
@@ -115,6 +135,7 @@ export function runAdmission(db: Database, config: { provider: string; model: st
             provider: config.provider,
             model: config.model,
             instructions: agent.instructions,
+            environment,
           })
           .returning();
       }
