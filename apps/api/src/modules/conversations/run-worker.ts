@@ -10,6 +10,7 @@ import type {
 } from "@opensquad/core";
 import { type Database, runtimeSessions } from "@opensquad/db";
 import { eq } from "drizzle-orm";
+import { sessionInstructions } from "../memory/render.js";
 import { terminal } from "./persistence.js";
 import { runtimeStore, saveRun } from "./run-store.js";
 import { runtimeEvents } from "./runtime-events.js";
@@ -132,7 +133,7 @@ export async function executeRun(work: RunWork) {
         () =>
           runtime.createSession(
             {
-              instructions: session.instructions,
+              instructions: sessionInstructions(session.instructions, session.memorySnapshot),
               model: session.model,
               environment: session.environment,
               ...(submitted ? { input: run.input } : {}),

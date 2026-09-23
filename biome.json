@@ -23,7 +23,6 @@
             "paths": {
               "@supabase/supabase-js": "Provider SDKs belong in plugins/. Use the StorageProvider capability.",
               "@daytonaio/sdk": "Provider SDKs belong in plugins/. Use the SandboxProvider capability.",
-              "mem0ai": "Provider SDKs belong in plugins/. Use the MemoryProvider capability.",
               "agentmail": "Provider SDKs belong in plugins/. Use the EmailProvider capability.",
               "@vapi-ai/server-sdk": "Provider SDKs belong in plugins/. Use the PhoneProvider capability.",
               "@composio/core": "Provider SDKs belong in plugins/. Use the ToolsProvider capability.",

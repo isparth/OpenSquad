@@ -12,7 +12,6 @@ describe("default runtime", () => {
     expect(capabilities.runtime.features.environmentless).toBe(true);
     expect(capabilities).not.toHaveProperty("model");
     expect(capabilities).not.toHaveProperty("sandbox");
-    expect(capabilities.memory.name).toBe("mem0");
     expect(capabilities.email.name).toBe("agentmail");
     expect(capabilities.phone.name).toBe("vapi");
     expect(capabilities.tools.name).toBe("composio");

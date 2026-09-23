@@ -1,5 +1,4 @@
 import type { EmailProvider } from "./email.js";
-import type { MemoryProvider } from "./memory.js";
 import type { PhoneProvider } from "./phone.js";
 import type { AgentRuntimeProvider } from "./runtime.js";
 import type { SchedulerProvider } from "./scheduler.js";
@@ -7,7 +6,6 @@ import type { StorageProvider } from "./storage.js";
 import type { ToolsProvider } from "./tools.js";
 
 export * from "./email.js";
-export * from "./memory.js";
 export * from "./model.js";
 export * from "./phone.js";
 export * from "./runtime.js";
@@ -23,7 +21,6 @@ export * from "./tools.js";
  */
 export interface Capabilities {
   runtime: AgentRuntimeProvider;
-  memory: MemoryProvider;
   email: EmailProvider;
   phone: PhoneProvider;
   tools: ToolsProvider;

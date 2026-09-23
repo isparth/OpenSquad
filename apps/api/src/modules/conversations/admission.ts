@@ -10,6 +10,7 @@ import {
   runtimeSessions,
 } from "@opensquad/db";
 import { and, count, eq, gte, sql } from "drizzle-orm";
+import { memorySnapshot } from "../memory/service.js";
 import { ConversationError, messageDto, runDto } from "./dto.js";
 import { appendEvent, lockConversation, nextMessageSequence } from "./persistence.js";
 
@@ -135,6 +136,7 @@ export function runAdmission(
             provider: config.provider,
             model: config.model,
             instructions: agent.instructions,
+            memorySnapshot: await memorySnapshot(tx, ownerId, agent.id),
             environment,
           })
           .returning();

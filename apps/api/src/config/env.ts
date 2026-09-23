@@ -20,7 +20,6 @@ const schema = z.object({
 
   OPENAI_API_KEY: optionalString,
   RUNTIME_MODEL: z.string().trim().min(1).default("gpt-6-luna"),
-  MEM0_API_KEY: optionalString,
   AGENTMAIL_API_KEY: optionalString,
   VAPI_API_KEY: optionalString,
   COMPOSIO_API_KEY: optionalString,

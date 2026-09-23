@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ApiClient, ApiError } from "@/lib/api/client.js";
+import { MemoryPanel } from "../memory/MemoryPanel.js";
 import { AgentAvatar } from "./AgentAvatar.js";
 import { AgentForm } from "./AgentForm.js";
 import { AvatarPicker } from "./AvatarPicker.js";
@@ -118,6 +119,10 @@ export function AgentDetails({
             ? "On. New conversations get an OpenAI-hosted sandbox for running code and working with files."
             : "Off. This bot chats without a sandbox. Turn it on in Edit bot."}
         </p>
+      </section>
+      <section className="detail-section">
+        <h3>Memory</h3>
+        <MemoryPanel agentId={agent.id} disabled={busy} onBusyChange={onBusyChange} />
       </section>
       <section className="detail-section">
         <h3>Appearance</h3>

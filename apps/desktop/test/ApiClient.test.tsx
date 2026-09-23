@@ -257,3 +257,103 @@ describe("conversation client", () => {
     );
   });
 });
+
+const memoryDocument = {
+  name: "profile",
+  scope: "shared",
+  content: "Name: Parth",
+  version: 2,
+  limit: 4000,
+  updatedAt: "2026-09-15T00:00:00.000Z",
+};
+const memoryRevision = {
+  version: 2,
+  author: "user",
+  content: "Name: Parth",
+  createdAt: "2026-09-15T00:00:00.000Z",
+};
+
+describe("memory client", () => {
+  it("parses memory documents and revision pages into checked fields", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ documents: [{ ...memoryDocument, extra: "ignored" }] })),
+    );
+    expect(await api.getMemory("agent-1")).toEqual([memoryDocument]);
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ items: [memoryRevision], nextCursor: "2" })),
+    );
+    expect(await api.listMemoryRevisions("agent-1", "profile", null)).toEqual({
+      items: [memoryRevision],
+      nextCursor: "2",
+    });
+  });
+
+  it("rejects malformed memory documents and revisions", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    for (const document of [
+      { ...memoryDocument, name: "secrets" },
+      { ...memoryDocument, version: -1 },
+      { name: "profile", scope: "shared", content: "", version: 0, updatedAt: null },
+    ]) {
+      fetch.mockResolvedValueOnce(new Response(JSON.stringify({ documents: [document] })));
+      await expect(api.getMemory("agent-1")).rejects.toThrow("Invalid memory response");
+    }
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ items: [{ ...memoryRevision, author: "system" }], nextCursor: null }),
+      ),
+    );
+    await expect(api.listMemoryRevisions("agent-1", "profile", null)).rejects.toThrow(
+      "Invalid memory response",
+    );
+  });
+
+  it("saves, reverts and forgets memory with the documented methods and payloads", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ document: memoryDocument })));
+    expect(await api.saveMemory("agent id", "profile", "New name", 2)).toEqual(memoryDocument);
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/agents/agent%20id/memory/profile",
+      expect.objectContaining({
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "New name", expectedVersion: 2 }),
+      }),
+    );
+
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ document: memoryDocument })));
+    await api.revertMemory("agent id", "notes", 1, 2);
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/agents/agent%20id/memory/notes/revert",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, expectedVersion: 2 }),
+      }),
+    );
+
+    fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(api.forgetMemory()).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/memory",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("encodes the revisions cursor and preserves conflict status", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ items: [memoryRevision], nextCursor: null })),
+    );
+    await api.listMemoryRevisions("agent id", "preferences", "cursor 2");
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/agents/agent%20id/memory/preferences/revisions?limit=20&cursor=cursor%202",
+      expect.anything(),
+    );
+    fetch.mockResolvedValueOnce(new Response("conflict", { status: 409 }));
+    await expect(api.saveMemory("agent-1", "profile", "new", 2)).rejects.toEqual(
+      new ApiError(409, "API returned status 409"),
+    );
+  });
+});

@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest";
 import { type App, buildApp } from "../src/app.js";
 import { loadEnv } from "../src/config/env.js";
 import { chargeRequest } from "../src/modules/conversations/limits.js";
+import { testDatabaseUrl } from "./database-url.js";
 
-const databaseUrl = "postgres://opensquad:opensquad@localhost:5432/opensquad";
+const databaseUrl = testDatabaseUrl;
 
 describe("runtime safety gates", () => {
   it("refuses production startup when either authentication key is absent", async () => {

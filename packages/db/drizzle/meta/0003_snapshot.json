@@ -1,6 +1,6 @@
 {
-  "id": "8761ce33-6f09-4b01-9b18-2c7e942e3a53",
-  "prevId": "4ed7f213-624e-4117-b484-ede0ea15d9d7",
+  "id": "40fdf025-aa72-4000-b8a6-92ac378e5a16",
+  "prevId": "8761ce33-6f09-4b01-9b18-2c7e942e3a53",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -52,6 +52,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "''"
+        },
+        "sandbox_enabled": {
+          "name": "sandbox_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "sandbox_external_id": {
           "name": "sandbox_external_id",
@@ -975,6 +982,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "environment": {
+          "name": "environment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'hosted'"
         }
       },
       "indexes": {
@@ -1046,7 +1060,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "runtime_sessions_environment_check": {
+          "name": "runtime_sessions_environment_check",
+          "value": "\"runtime_sessions\".\"environment\" in ('hosted', 'none')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.memory_documents": {
