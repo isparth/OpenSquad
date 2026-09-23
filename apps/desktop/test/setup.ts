@@ -13,4 +13,5 @@ window.opensquad = {
   sendMessage: vi.fn().mockRejectedValue(new Error("not implemented in test bridge")),
   cancelRun: vi.fn().mockRejectedValue(new Error("not implemented in test bridge")),
   reconcileRun: vi.fn().mockRejectedValue(new Error("not implemented in test bridge")),
+  refreshMemory: vi.fn().mockResolvedValue({ update: null }),
 };

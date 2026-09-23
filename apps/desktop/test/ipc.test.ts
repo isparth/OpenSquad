@@ -4,6 +4,7 @@ import { IPC } from "../src/shared/ipc.js";
 
 const RENDERER_URL = "http://localhost:5173/";
 const RUN_ID = "22222222-2222-4222-8222-222222222222";
+const AGENT_ID = "77777777-7777-4777-8777-777777777777";
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, arg: unknown) => Promise<unknown>>(),
@@ -62,6 +63,7 @@ beforeEach(() => {
     sendMessage: vi.fn(async (_c, signal: AbortSignal) => ({ signal })),
     cancelRun: vi.fn(async (_c, signal: AbortSignal) => ({ signal })),
     reconcileRun: vi.fn(async (_c, signal: AbortSignal) => ({ signal })),
+    refreshMemory: vi.fn(async (_c, signal: AbortSignal) => ({ update: null, signal })),
     abortAll: vi.fn(),
   } as unknown as RuntimeCommands;
   controller = registerIpc({ vault, commands });
@@ -268,6 +270,22 @@ describe("argument validation", () => {
     expect(vault.set).not.toHaveBeenCalled();
   });
 
+  it("registers and validates the refreshMemory command", async () => {
+    const wc = new FakeWebContents();
+    controller.trustWindow(fakeWindow(wc));
+    await expect(
+      invoke(IPC.refreshMemory, eventFor(wc), { agentId: AGENT_ID }),
+    ).resolves.toMatchObject({ update: null, signal: expect.any(AbortSignal) });
+    expect(commands.refreshMemory).toHaveBeenCalledWith(
+      { agentId: AGENT_ID },
+      expect.any(AbortSignal),
+    );
+    await expect(invoke(IPC.refreshMemory, eventFor(wc), { agentId: "invalid" })).rejects.toThrow(
+      "invalid request",
+    );
+    expect(commands.refreshMemory).toHaveBeenCalledOnce();
+  });
+
   it("rejects a provided argument on no-argument methods", async () => {
     const wc = new FakeWebContents();
     controller.trustWindow(fakeWindow(wc));
@@ -333,6 +351,7 @@ describe("bridge surface", () => {
         "getAppInfo",
         "getRuntimeKeyStatus",
         "reconcileRun",
+        "refreshMemory",
         "sendMessage",
         "setRuntimeKey",
       ].sort(),

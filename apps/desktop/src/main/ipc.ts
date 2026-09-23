@@ -11,6 +11,7 @@ import { config } from "./config.js";
 import { isExpectedRendererUrl } from "./renderer-url.js";
 import {
   type RuntimeCommands,
+  refreshMemoryCommandSchema,
   runCommandSchema,
   sendMessageCommandSchema,
 } from "./runtime-commands.js";
@@ -195,6 +196,9 @@ export function registerIpc(deps: RegisterIpcDeps): IpcController {
   handle(IPC.cancelRun, runCommandSchema, (command, signal) => commands.cancelRun(command, signal));
   handle(IPC.reconcileRun, runCommandSchema, (command, signal) =>
     commands.reconcileRun(command, signal),
+  );
+  handle(IPC.refreshMemory, refreshMemoryCommandSchema, (command, signal) =>
+    commands.refreshMemory(command, signal),
   );
 
   return {
