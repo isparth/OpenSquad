@@ -11,7 +11,6 @@ export const agents = pgTable("agents", {
   sandboxEnabled: boolean("sandbox_enabled").notNull().default(false),
   // External provider references only. Postgres stays the source of truth. SPEC section 9.
   sandboxExternalId: text("sandbox_external_id"),
-  memoryExternalId: text("memory_external_id"),
   emailInboxExternalId: text("email_inbox_external_id"),
   phoneExternalId: text("phone_external_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

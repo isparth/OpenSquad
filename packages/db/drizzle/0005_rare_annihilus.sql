@@ -1,0 +1,1 @@
+ALTER TABLE "agents" DROP COLUMN "memory_external_id";
