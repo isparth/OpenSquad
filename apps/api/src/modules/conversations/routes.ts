@@ -10,6 +10,7 @@ import { eventStreams } from "./event-stream.js";
 import { chargeRequest } from "./limits.js";
 import { runtimeStore } from "./run-store.js";
 import { conversationsService } from "./service.js";
+import type { UsageBackfillOptions } from "./turn-usage.js";
 
 const idParams = z.object({ id: z.uuid() });
 const limit = z.coerce.number().int().min(1).max(100).default(50);
@@ -45,7 +46,9 @@ function credentials(request: FastifyRequest) {
   return value;
 }
 
-const routes: FastifyPluginAsyncZod = async (app) => {
+type ConversationRoutesOptions = { usageBackfill: UsageBackfillOptions };
+
+const routes: FastifyPluginAsyncZod<ConversationRoutesOptions> = async (app, options) => {
   app.addHook("preHandler", app.requireAuth);
   app.addHook("preHandler", async (request) => {
     await chargeRequest(
@@ -54,8 +57,11 @@ const routes: FastifyPluginAsyncZod = async (app) => {
       app.env.NODE_ENV === "test" ? 10_000 : 120,
     );
   });
-  const coordinator = runCoordinator(app.db, app.capabilities.runtime, () =>
-    app.log.error("Runtime worker stopped; reconciliation may be required"),
+  const coordinator = runCoordinator(
+    app.db,
+    app.capabilities.runtime,
+    () => app.log.error("Runtime worker stopped; reconciliation may be required"),
+    options.usageBackfill,
   );
   const store = runtimeStore(app.db);
   const admit = runAdmission(app.db, {

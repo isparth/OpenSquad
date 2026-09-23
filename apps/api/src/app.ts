@@ -11,6 +11,7 @@ import auth from "./auth/index.js";
 import type { Env } from "./config/env.js";
 import agentsRoutes from "./modules/agents/routes.js";
 import conversationsRoutes from "./modules/conversations/routes.js";
+import type { UsageBackfillOptions } from "./modules/conversations/turn-usage.js";
 import healthRoutes from "./modules/health/routes.js";
 import meRoutes from "./modules/me/routes.js";
 import memoryRoutes from "./modules/memory/routes.js";
@@ -22,12 +23,17 @@ import memoryUpdates from "./plugins/memory-updates.js";
 export interface BuildAppOptions {
   capabilities?: Partial<Capabilities>;
   memoryUpdates?: { autoTrigger?: boolean; turnDeadlineMs?: number; pollIntervalMs?: number };
+  usageBackfill?: { attempts?: number; intervalMs?: number };
 }
 
 export async function buildApp(env: Env, options: BuildAppOptions = {}) {
   if (env.NODE_ENV === "production" && (!env.CLERK_SECRET_KEY || !env.CLERK_PUBLISHABLE_KEY)) {
     throw new Error("Production requires both Clerk keys");
   }
+  const usageBackfill: UsageBackfillOptions = {
+    attempts: options.usageBackfill?.attempts ?? 10,
+    intervalMs: options.usageBackfill?.intervalMs ?? 1_000,
+  };
   const app = Fastify({
     logger:
       env.NODE_ENV === "test"
@@ -50,12 +56,12 @@ export async function buildApp(env: Env, options: BuildAppOptions = {}) {
   await app.register(cors, { origin: true, methods: ["GET", "HEAD", "POST", "PATCH", "DELETE"] });
   await app.register(db);
   await app.register(capabilities, { overrides: options.capabilities ?? {} });
-  await app.register(memoryUpdates, options.memoryUpdates ?? {});
+  await app.register(memoryUpdates, { ...(options.memoryUpdates ?? {}), usageBackfill });
   await app.register(auth);
 
   await app.register(healthRoutes);
   await app.register(agentsRoutes, { prefix: "/agents" });
-  await app.register(conversationsRoutes);
+  await app.register(conversationsRoutes, { usageBackfill });
   await app.register(memoryRoutes);
   await app.register(meRoutes);
 

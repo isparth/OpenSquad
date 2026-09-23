@@ -5,6 +5,7 @@ import type {
   MemoryUpdate,
   RuntimeCredentials,
   RuntimeTurn,
+  RuntimeUsage,
 } from "@opensquad/core";
 import {
   agents,
@@ -16,6 +17,7 @@ import {
 } from "@opensquad/db";
 import { and, count, eq, gt, gte, isNull, or, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
+import { awaitTurnUsage, type UsageBackfillOptions } from "../conversations/turn-usage.js";
 import {
   extractorInput,
   extractorInstructions,
@@ -108,6 +110,7 @@ export function memoryUpdater(
     autoTrigger: boolean;
     turnDeadlineMs: number;
     pollIntervalMs: number;
+    usageBackfill: UsageBackfillOptions;
   },
 ): {
   refresh(
@@ -238,10 +241,19 @@ export function memoryUpdater(
     });
   }
 
-  async function markFailed(updateId: string, errorCode: string): Promise<boolean> {
+  async function markFailed(
+    updateId: string,
+    errorCode: string,
+    usage?: RuntimeUsage | null,
+  ): Promise<boolean> {
     const [row] = await db
       .update(memoryUpdates)
-      .set({ status: "failed", errorCode, finishedAt: sql`clock_timestamp()` })
+      .set({
+        status: "failed",
+        errorCode,
+        ...(usage === undefined ? {} : { usage }),
+        finishedAt: sql`clock_timestamp()`,
+      })
       .where(and(eq(memoryUpdates.id, updateId), eq(memoryUpdates.status, "running")))
       .returning({ id: memoryUpdates.id });
     return Boolean(row);
@@ -359,6 +371,7 @@ export function memoryUpdater(
   async function processJob(job: MemoryJob, signal: AbortSignal): Promise<void> {
     const { update, credentials } = job;
     let session: { provider: string; externalId: string } | null = null;
+    let terminalUsage: RuntimeUsage | null | undefined;
     let finalStatus: "succeeded" | "failed" | null = null;
     let errorCode: string | null = null;
     let changedNames: MemoryDocumentName[] = [];
@@ -414,6 +427,12 @@ export function memoryUpdater(
         } catch {}
         throw new UpdateFailure("deadline_exceeded");
       }
+      terminalUsage = root.usage;
+      if (terminalUsage === null)
+        terminalUsage = await awaitTurnUsage(runtime, session, root.externalId, credentials, {
+          ...options.usageBackfill,
+          signal,
+        });
       if (root.status !== "succeeded") throw new UpdateFailure("provider_failure");
 
       const text = await finalAssistantText(runtime, session, root.externalId, credentials, signal);
@@ -423,7 +442,7 @@ export function memoryUpdater(
         throw new UpdateFailure("invalid_output");
       if (documentNames.some((name) => (output[name]?.length ?? 0) > documentLimits[name]))
         throw new UpdateFailure("output_too_long");
-      const applied = await applyUpdate(job, output, root.usage);
+      const applied = await applyUpdate(job, output, terminalUsage ?? null);
       if (applied.completed) {
         finalStatus = "succeeded";
         errorCode = applied.errorCode;
@@ -437,7 +456,7 @@ export function memoryUpdater(
             ? error.errorCode
             : "provider_failure";
       try {
-        if (await markFailed(update.id, errorCode)) finalStatus = "failed";
+        if (await markFailed(update.id, errorCode, terminalUsage)) finalStatus = "failed";
       } catch {}
     } finally {
       if (session && !closing) {

@@ -66,6 +66,17 @@ describe("automatic memory updates", () => {
     return agent.id;
   }
 
+  async function enableUsageBackfill() {
+    await app.close();
+    appClosed = true;
+    app = await createTestApp({
+      capabilities: { runtime },
+      memoryUpdates: { autoTrigger: true, pollIntervalMs: 5, turnDeadlineMs: 300 },
+      usageBackfill: { attempts: 5, intervalMs: 5 },
+    });
+    appClosed = false;
+  }
+
   async function createConversation(id = agentId, owner = ownerId) {
     const { conversation } = await conversationsService(app.db).create(owner, id, null);
     conversationIds.push(conversation.id);
@@ -452,6 +463,61 @@ describe("automatic memory updates", () => {
     expect(
       await app.db.select().from(memoryDocuments).where(eq(memoryDocuments.ownerId, ownerId)),
     ).toMatchObject([{ name: "profile", content: "- Name: Parth", version: 1 }]);
+  });
+
+  it("backfills delayed extraction usage before applying memory", async () => {
+    await enableUsageBackfill();
+    await addTranscript(agentId, [{ role: "user", text: "My name is Parth" }]);
+    let reads = 0;
+    const usage = { inputTokens: 10, outputTokens: 2 };
+    runtime.listTurns.mockImplementation(async function* (session) {
+      if (!session.externalId.startsWith("extract_")) return;
+      reads++;
+      yield {
+        externalId: "extract-root",
+        subagentExternalId: null,
+        status: "succeeded",
+        usage: reads >= 3 ? usage : null,
+        error: null,
+      };
+    });
+
+    const started = await startManualRefresh();
+    expect(started.statusCode).toBe(202);
+    const update = await waitForUpdate(started.json().update.id, "succeeded");
+    expect(reads).toBe(3);
+    expect(update.usage).toEqual(usage);
+    expect(
+      await app.db.select().from(memoryDocuments).where(eq(memoryDocuments.ownerId, ownerId)),
+    ).toMatchObject([{ name: "profile", content: "- Name: Parth", version: 1 }]);
+  });
+
+  it("records delayed usage when an extraction turn fails", async () => {
+    await enableUsageBackfill();
+    await addTranscript(agentId, [{ role: "user", text: "My name is Parth" }]);
+    extractionTurnStatus = "failed";
+    const usage = { inputTokens: 9, outputTokens: 1 };
+    let reads = 0;
+    runtime.listTurns.mockImplementation(async function* (session) {
+      if (!session.externalId.startsWith("extract_")) return;
+      reads++;
+      yield {
+        externalId: "extract-root",
+        subagentExternalId: null,
+        status: "failed",
+        usage: reads >= 2 ? usage : null,
+        error: null,
+      };
+    });
+
+    const started = await startManualRefresh();
+    expect(started.statusCode).toBe(202);
+    const update = await waitForUpdate(started.json().update.id, "failed");
+    expect(update.errorCode).toBe("provider_failure");
+    expect(update.usage).toEqual(usage);
+    expect(
+      await app.db.select().from(memoryDocuments).where(eq(memoryDocuments.ownerId, ownerId)),
+    ).toHaveLength(0);
   });
 
   it.each([
