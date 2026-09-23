@@ -87,6 +87,7 @@ export const runtimeSessions = pgTable(
     provider: text("provider").notNull(),
     externalId: text("external_id"),
     instructions: text("instructions").notNull(),
+    memorySnapshot: text("memory_snapshot").notNull().default(""),
     model: text("model").notNull(),
   },
   (table) => [
