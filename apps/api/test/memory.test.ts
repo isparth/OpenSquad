@@ -183,6 +183,41 @@ describe("memory documents", () => {
     ).toBe(400);
   });
 
+  it("rejects foreign bot access on every memory route without writing documents", async () => {
+    const profile = await app.inject({
+      method: "PATCH",
+      url: `/agents/${foreignAgent}/memory/profile`,
+      payload: { content: "private", expectedVersion: 0 },
+    });
+    const notes = await app.inject({
+      method: "PATCH",
+      url: `/agents/${foreignAgent}/memory/notes`,
+      payload: { content: "private", expectedVersion: 0 },
+    });
+    const revisions = await app.inject({
+      method: "GET",
+      url: `/agents/${foreignAgent}/memory/profile/revisions`,
+    });
+    const reverted = await app.inject({
+      method: "POST",
+      url: `/agents/${foreignAgent}/memory/profile/revert`,
+      payload: { version: 1, expectedVersion: 0 },
+    });
+
+    expect([
+      profile.statusCode,
+      notes.statusCode,
+      revisions.statusCode,
+      reverted.statusCode,
+    ]).toEqual([404, 404, 404, 404]);
+    expect(
+      await app.db.select().from(memoryDocuments).where(eq(memoryDocuments.ownerId, "dev-user")),
+    ).toHaveLength(0);
+    expect(
+      await app.db.select().from(memoryDocuments).where(eq(memoryDocuments.ownerId, "other-owner")),
+    ).toHaveLength(0);
+  });
+
   it("increments versions and rejects stale writes without changing the document", async () => {
     const first = await save(agentA, "profile", "Name: Parth", 0);
     expect(first.statusCode).toBe(200);
