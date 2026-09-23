@@ -523,6 +523,15 @@ describe("memory client", () => {
     await expect(api.undoMemoryUpdate(memoryReview.updateId)).rejects.toEqual(
       new ApiError(409, "API returned status 409"),
     );
+
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "This memory update was already reviewed" }), {
+        status: 409,
+      }),
+    );
+    await expect(api.undoMemoryUpdate(memoryReview.updateId)).rejects.toEqual(
+      new ApiError(409, "This memory update was already reviewed"),
+    );
   });
 
   it("saves, reverts and forgets memory with the documented methods and payloads", async () => {

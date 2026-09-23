@@ -78,9 +78,11 @@ describe("memory reviews panel", () => {
     renderReviews();
 
     expect(
-      await screen.findByRole("heading", { name: "Changes to review (1)" }),
+      await screen.findByRole("heading", { name: "Changes to review (1)", level: 4 }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/From your conversation with Research bot ·/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /From your conversation with Research bot ·/, level: 5 }),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(`Read: Planning (${new Date(startedAt).toLocaleDateString()})`),
     ).toBeInTheDocument();
@@ -118,6 +120,50 @@ describe("memory reviews panel", () => {
     expect(screen.queryByText("Shared with all your bots")).not.toBeInTheDocument();
   });
 
+  it("keeps remaining rows visible while refreshing the count after Keep", async () => {
+    const first = review({
+      updateId: "33333333-3333-4333-8333-333333333333",
+      agentName: "First bot",
+    });
+    const remaining = review({
+      updateId: "55555555-5555-4555-8555-555555555555",
+      agentName: "Remaining bot",
+    });
+    let resolveReload: (response: Response) => void = () => {};
+    const reloadedPage = new Promise<Response>((resolve) => {
+      resolveReload = resolve;
+    });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ items: [first, remaining], nextCursor: null }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockImplementationOnce(() => reloadedPage);
+    let rerenderCount: (count: number) => void = () => {};
+    const onChanged = vi.fn(() => rerenderCount(1));
+    const view = render(
+      <MemoryReviews agentId={agentId} pendingCount={2} disabled={false} onChanged={onChanged} />,
+    );
+    rerenderCount = (count) =>
+      view.rerender(
+        <MemoryReviews
+          agentId={agentId}
+          pendingCount={count}
+          disabled={false}
+          onChanged={onChanged}
+        />,
+      );
+    const firstHeader = await screen.findByRole("heading", { name: /First bot/ });
+    const firstItem = firstHeader.closest("article");
+    if (!firstItem) throw new Error("Expected first review item");
+
+    fireEvent.click(within(firstItem).getByRole("button", { name: "Keep" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(screen.queryByText("Loading reviews…")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Remaining bot/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /First bot/ })).not.toBeInTheDocument();
+    resolveReload(jsonResponse({ items: [remaining], nextCursor: null }));
+    await screen.findByRole("heading", { name: /Remaining bot/ });
+  });
+
   it("reloads reviews and explains a conflict when Undo returns 409", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ items: [review()], nextCursor: null }))
@@ -134,6 +180,23 @@ describe("memory reviews panel", () => {
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       "http://localhost:3000/agents/11111111-1111-4111-8111-111111111111/memory/reviews?limit=10",
     );
+  });
+
+  it("drops an already-reviewed Undo conflict like a missing update", async () => {
+    const onChanged = vi.fn();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ items: [review()], nextCursor: null }))
+      .mockResolvedValueOnce(
+        jsonResponse({ message: "This memory update was already reviewed" }, 409),
+      );
+    renderReviews({ onChanged });
+
+    await screen.findByText("Shared with all your bots");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Shared with all your bots")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Memory changed since this update/)).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("disables Undo when the current document has changed", async () => {
@@ -197,17 +260,35 @@ describe("memory reviews panel", () => {
     expect(request.signal?.aborted).toBe(true);
   });
 
-  it("aborts the previous list request when the viewed bot changes", async () => {
-    const firstRequest = { signal: null as AbortSignal | null };
+  it("hides the previous bot's reviews and aborts pending pages when the bot changes", async () => {
+    const first = review({ agentName: "First bot" });
+    const second = review({ agentId: otherAgentId, agentName: "Other bot" });
+    const moreRequest = { signal: null as AbortSignal | null };
+    let resolveMore: (response: Response) => void = () => {};
+    const morePage = new Promise<Response>((resolve) => {
+      resolveMore = resolve;
+    });
+    const newBotRequest = { signal: null as AbortSignal | null };
+    let resolveNewBot: (response: Response) => void = () => {};
+    const newBotPage = new Promise<Response>((resolve) => {
+      resolveNewBot = resolve;
+    });
     fetchMock
+      .mockResolvedValueOnce(jsonResponse({ items: [first], nextCursor: "more" }))
       .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => {
-        firstRequest.signal = init?.signal ?? null;
-        return new Promise<Response>(() => {});
+        moreRequest.signal = init?.signal ?? null;
+        return morePage;
       })
-      .mockResolvedValueOnce(jsonResponse({ items: [review()], nextCursor: null }));
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => {
+        newBotRequest.signal = init?.signal ?? null;
+        return newBotPage;
+      });
     const onChanged = vi.fn();
     const view = renderReviews({ onChanged });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await screen.findByRole("heading", { name: /From your conversation with First bot/ });
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
     view.rerender(
       <MemoryReviews
         agentId={otherAgentId}
@@ -216,10 +297,19 @@ describe("memory reviews panel", () => {
         onChanged={onChanged}
       />,
     );
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(firstRequest.signal?.aborted).toBe(true);
-    expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      "http://localhost:3000/agents/22222222-2222-4222-8222-222222222222/memory/reviews?limit=10",
-    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(moreRequest.signal?.aborted).toBe(true);
+    expect(newBotRequest.signal?.aborted).toBe(false);
+    expect(
+      screen.queryByRole("heading", { name: /From your conversation with First bot/ }),
+    ).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading reviews…");
+
+    resolveMore(jsonResponse({ items: [], nextCursor: null }));
+    resolveNewBot(jsonResponse({ items: [second], nextCursor: null }));
+    await screen.findByRole("heading", { name: /From your conversation with Other bot/ });
+    expect(
+      screen.queryByRole("heading", { name: /From your conversation with First bot/ }),
+    ).toBeNull();
   });
 });

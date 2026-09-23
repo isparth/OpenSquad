@@ -434,7 +434,7 @@ h3 {
   flex-direction: column;
   gap: 12px;
 }
-.memory-reviews > h3 {
+.memory-reviews > h4 {
   margin-bottom: 0;
 }
 .memory-review-list {
@@ -457,7 +457,7 @@ h3 {
   flex-direction: column;
   gap: 6px;
 }
-.memory-review-header h4 {
+.memory-review-header h5 {
   font-size: 13px;
   font-weight: 650;
   line-height: 1.5;

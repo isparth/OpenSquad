@@ -13,6 +13,7 @@ export function useMemoryReviews(agentId: string, pendingCount: number, onChange
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const mounted = useRef(false);
   const generation = useRef(0);
+  const lastLoadedAgentId = useRef(agentId);
   const requests = useRef(new Set<AbortController>());
 
   const abortRequests = useCallback(() => {
@@ -72,8 +73,11 @@ export function useMemoryReviews(agentId: string, pendingCount: number, onChange
   );
 
   useEffect(() => {
-    if (pendingCount > 0) loadFirstPage(true);
-    else {
+    const agentChanged = lastLoadedAgentId.current !== agentId;
+    if (pendingCount > 0) {
+      lastLoadedAgentId.current = agentId;
+      loadFirstPage(agentChanged);
+    } else {
       generation.current++;
       abortRequests();
       setItems([]);
@@ -87,7 +91,7 @@ export function useMemoryReviews(agentId: string, pendingCount: number, onChange
       generation.current++;
       abortRequests();
     };
-  }, [abortRequests, loadFirstPage, pendingCount]);
+  }, [abortRequests, agentId, loadFirstPage, pendingCount]);
 
   async function loadMore() {
     if (!nextCursor || loading || loadingMore) return;
@@ -126,7 +130,13 @@ export function useMemoryReviews(agentId: string, pendingCount: number, onChange
       onChanged();
     } catch (error) {
       if (!mounted.current) return;
-      if (error instanceof ApiError && error.status === 404) {
+      if (
+        error instanceof ApiError &&
+        (error.status === 404 ||
+          (action === "undo" &&
+            error.status === 409 &&
+            error.message.toLowerCase().includes("already reviewed")))
+      ) {
         setItems((current) => current.filter((item) => item.updateId !== review.updateId));
         onChanged();
       } else if (action === "undo" && error instanceof ApiError && error.status === 409) {

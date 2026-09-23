@@ -34,9 +34,9 @@ export function MemoryReviewItem({
   return (
     <article className="memory-review-item">
       <header className="memory-review-header">
-        <h4>
+        <h5>
           From your conversation with {review.agentName} · {time}
-        </h4>
+        </h5>
         {sources && <p className="muted memory-review-sources">{sources}</p>}
       </header>
       <ul className="memory-review-changes">

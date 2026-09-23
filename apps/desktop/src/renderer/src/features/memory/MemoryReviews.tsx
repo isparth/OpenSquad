@@ -30,7 +30,7 @@ export function MemoryReviews({
   if (pendingCount === 0) return null;
   return (
     <section className="memory-reviews" aria-labelledby={headingId}>
-      <h3 id={headingId}>Changes to review ({pendingCount})</h3>
+      <h4 id={headingId}>Changes to review ({pendingCount})</h4>
       {loadError && (
         <div className="memory-review-load-error" role="alert">
           <p className="error-message">{loadError}</p>
@@ -39,7 +39,7 @@ export function MemoryReviews({
           </button>
         </div>
       )}
-      {loading && <p role="status">Loading reviews…</p>}
+      {loading && items.length === 0 && <p role="status">Loading reviews…</p>}
       {!loading && !loadError && items.length === 0 && (
         <p className="muted">No changes to review.</p>
       )}

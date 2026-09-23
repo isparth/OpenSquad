@@ -384,11 +384,15 @@ export class ApiClient {
   }
 
   async undoMemoryUpdate(updateId: string): Promise<void> {
-    await this.request(`/memory/updates/${encodeURIComponent(updateId)}/undo`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
+    await this.request(
+      `/memory/updates/${encodeURIComponent(updateId)}/undo`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      },
+      ["This memory update was already reviewed"],
+    );
   }
 
   async setMemoryAutoUpdate(autoUpdate: boolean): Promise<boolean> {
@@ -528,12 +532,31 @@ export class ApiClient {
     return parseAgent(await response.json());
   }
 
-  private async request(path: string, init: RequestInit = {}): Promise<Response> {
+  private async request(
+    path: string,
+    init: RequestInit = {},
+    knownConflictMessages: readonly string[] = [],
+  ): Promise<Response> {
     const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
       ...init,
       redirect: "error",
     });
-    if (!response.ok) throw new ApiError(response.status, `API returned status ${response.status}`);
+    if (!response.ok) {
+      if (response.status === 409 && knownConflictMessages.length > 0) {
+        const value: unknown = await response
+          .clone()
+          .json()
+          .catch(() => null);
+        if (
+          isRecord(value) &&
+          typeof value.message === "string" &&
+          knownConflictMessages.includes(value.message)
+        ) {
+          throw new ApiError(response.status, value.message);
+        }
+      }
+      throw new ApiError(response.status, `API returned status ${response.status}`);
+    }
     return response;
   }
 

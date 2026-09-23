@@ -478,7 +478,9 @@ describe("memory panel", () => {
     );
     expect(screen.getByRole("textbox", { name: "About you" })).toHaveValue("- Name: Test");
     await flushMicrotasks();
-    expect(screen.getByRole("heading", { name: "Changes to review (1)" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Changes to review (1)", level: 4 }),
+    ).toBeInTheDocument();
   });
 
   it("keeps a stale draft base version through extraction and exposes the conflict path", async () => {
