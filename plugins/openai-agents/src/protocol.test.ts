@@ -9,7 +9,7 @@ import {
 
 const session = {
   id: "sess_123",
-  agent: { model: "gpt-6-astra" },
+  agent: { model: "gpt-6-luna" },
   status: "idle",
   environment: { type: "openai_hosted", id: "env_123" },
 };

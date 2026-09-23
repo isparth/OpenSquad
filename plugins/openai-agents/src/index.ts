@@ -89,7 +89,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
       .string()
       .trim()
       .min(1)
-      .parse(options.defaultModel ?? "gpt-6-astra");
+      .parse(options.defaultModel ?? "gpt-6-luna");
     this.#fetch = options.fetch;
   }
 
