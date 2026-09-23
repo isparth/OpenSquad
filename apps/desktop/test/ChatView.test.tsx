@@ -405,8 +405,7 @@ describe("chat view", () => {
     const box = screen.getByLabelText("Message");
     fireEvent.change(box, { target: { value: "hello" } });
     fireEvent.keyDown(box, { key: "Enter" });
-    const hint =
-      "If you changed this bot's settings, start a new conversation to keep chatting.";
+    const hint = "If you changed this bot's settings, start a new conversation to keep chatting.";
     expect(await screen.findByText(hint)).toBeInTheDocument();
 
     source.emit("run.updated", { run: run() });

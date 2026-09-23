@@ -261,10 +261,7 @@ describe("runtime HTTP execution", () => {
     expect(response.statusCode).toBe(202);
     const id = response.json().run.id;
     await vi.waitFor(async () => {
-      const [row] = await app.db
-        .select()
-        .from(conversationRuns)
-        .where(eq(conversationRuns.id, id));
+      const [row] = await app.db.select().from(conversationRuns).where(eq(conversationRuns.id, id));
       expect(row?.observation).toBe("reconciliation_required");
       expect(row?.cancelDispatched).toBe(true);
       expect(row?.active).toBe(true);
@@ -288,10 +285,7 @@ describe("runtime HTTP execution", () => {
     expect(response.statusCode).toBe(202);
     const id = response.json().run.id;
     await vi.waitFor(async () => {
-      const [row] = await app.db
-        .select()
-        .from(conversationRuns)
-        .where(eq(conversationRuns.id, id));
+      const [row] = await app.db.select().from(conversationRuns).where(eq(conversationRuns.id, id));
       expect(row?.active).toBe(true);
       expect(row?.observation).toBe("reconciliation_required");
     });
@@ -389,7 +383,9 @@ describe("runtime HTTP execution", () => {
     runtime.features.environmentless = false;
     const followup = await send();
     expect(followup.statusCode).toBe(409);
-    expect(followup.json().message).toBe("Bot or runtime settings changed; start a new conversation");
+    expect(followup.json().message).toBe(
+      "Bot or runtime settings changed; start a new conversation",
+    );
     expect(
       await app.db
         .select()
@@ -412,7 +408,7 @@ describe("runtime HTTP execution", () => {
       yield savedMessage("user", "saved-user", "Hello");
       yield savedMessage("assistant", "saved-assistant", "First reply");
     });
-    runtime.sendInput.mockImplementation(async (_ref, text) => {
+    runtime.sendInput.mockImplementation(async (_ref, _text) => {
       const activeQueue = queues[1];
       if (!activeQueue) throw new Error("Second subscription is missing");
       activeQueue.emit(turn("running", "followup-turn"));
