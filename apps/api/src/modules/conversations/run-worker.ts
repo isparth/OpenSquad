@@ -44,7 +44,7 @@ export async function executeRun(work: RunWork) {
     phase: "creating" | "sending" | "cancelling",
     call: () => Promise<T>,
     persist?: (value: T) => Promise<void>,
-    nextPhase: "subscribing" | "observing" = phase === "creating" ? "subscribing" : "observing",
+    nextPhase: "subscribing" | "observing" = "observing",
   ) {
     signal.throwIfAborted();
     await owned(async (tx, run) => {
