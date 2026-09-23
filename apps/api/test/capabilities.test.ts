@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type App, buildApp } from "../src/app.js";
 import { buildCapabilities } from "../src/capabilities/registry.js";
 import { loadEnv } from "../src/config/env.js";
+import { testDatabaseUrl } from "./database-url.js";
 import { FakeRuntimeProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
-import { testDatabaseUrl } from "./database-url.js";
 
 const env = loadEnv({
   NODE_ENV: "test",

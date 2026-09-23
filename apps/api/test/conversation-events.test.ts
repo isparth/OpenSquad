@@ -8,9 +8,9 @@ import type { App } from "../src/app.js";
 import { agentsService } from "../src/modules/agents/service.js";
 import { runAdmission } from "../src/modules/conversations/admission.js";
 import { conversationsService } from "../src/modules/conversations/service.js";
+import { testDatabaseUrl } from "./database-url.js";
 import { FakeRuntimeProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
-import { testDatabaseUrl } from "./database-url.js";
 
 function frames(reader: ReadableStreamDefaultReader<Uint8Array>) {
   let buffer = "";
