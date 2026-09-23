@@ -7,6 +7,7 @@ const agent: AgentRecord = {
   label: null,
   description: "",
   instructions: "",
+  sandboxEnabled: false,
   avatarUrl: null,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",
@@ -22,7 +23,13 @@ describe("bot HTTP client", () => {
     expect(await api.listAgents()).toEqual([agent]);
     fetch.mockResolvedValueOnce(new Response(JSON.stringify(agent)));
     expect(await api.getAgent(agent.id)).toEqual(agent);
-    const input = { name: "Test", label: null, description: "", instructions: "" };
+    const input = {
+      name: "Test",
+      label: null,
+      description: "",
+      instructions: "",
+      sandboxEnabled: false,
+    };
     fetch.mockResolvedValueOnce(new Response(JSON.stringify(agent)));
     await api.createAgent(input);
     expect(fetch).toHaveBeenLastCalledWith(
@@ -35,6 +42,15 @@ describe("bot HTTP client", () => {
       `http://localhost:3000/agents/${agent.id}`,
       expect.objectContaining({ method: "PATCH", body: '{"label":null}' }),
     );
+  });
+
+  it("rejects missing and non-boolean sandbox settings in bot responses", async () => {
+    const missing: Record<string, unknown> = { ...agent };
+    delete missing.sandboxEnabled;
+    for (const value of [missing, { ...agent, sandboxEnabled: "true" }]) {
+      vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify(value)));
+      await expect(api.getAgent(agent.id)).rejects.toThrow("Invalid bot response");
+    }
   });
 
   it("handles a bodyless 204 delete response", async () => {

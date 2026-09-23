@@ -112,6 +112,14 @@ export function AgentDetails({
         </div>
       </section>
       <section className="detail-section">
+        <h3>Sandbox</h3>
+        <p className={agent.sandboxEnabled ? "" : "muted"}>
+          {agent.sandboxEnabled
+            ? "On. New conversations get an OpenAI-hosted sandbox for running code and working with files."
+            : "Off. This bot chats without a sandbox. Turn it on in Edit bot."}
+        </p>
+      </section>
+      <section className="detail-section">
         <h3>Appearance</h3>
         <AvatarPicker
           agentId={agent.id}

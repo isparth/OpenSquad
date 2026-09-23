@@ -24,6 +24,7 @@ const alice: AgentRecord = {
   label: "Research",
   description: "Find reliable sources.",
   instructions: "Cite your sources.",
+  sandboxEnabled: false,
   avatarUrl: null,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",
@@ -88,9 +89,23 @@ describe("bot management", () => {
     expect(await screen.findByTestId("agent-details")).toBeInTheDocument();
     expect(screen.getByText("Find reliable sources.")).toBeInTheDocument();
     expect(screen.getByText("Cite your sources.")).toBeInTheDocument();
+    const sandboxStatus = screen.getByText(
+      "Off. This bot chats without a sandbox. Turn it on in Edit bot.",
+    );
+    expect(sandboxStatus).toHaveClass("muted");
     fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Edit bot" })).toBeInTheDocument();
+  });
+
+  it("shows the enabled sandbox details for a bot", async () => {
+    api.getAgent.mockResolvedValue({ ...alice, sandboxEnabled: true });
+    await openAliceProfile();
+    expect(
+      screen.getByText(
+        "On. New conversations get an OpenAI-hosted sandbox for running code and working with files.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("renders no label text for a bot without a label", async () => {
@@ -130,6 +145,12 @@ describe("bot management", () => {
     fireEvent.click(screen.getByRole("button", { name: "New bot" }));
     fireEvent.change(screen.getByLabelText("Bot name"), { target: { value: "Bob" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "A helpful bot" } });
+    expect(screen.getByRole("switch", { name: "Sandbox" })).not.toBeChecked();
+    expect(
+      screen.getByText(
+        "Lets this bot run code and work with files in an OpenAI-hosted sandbox. Off by default, and it may add cost on your OpenAI account. Changes apply to new conversations.",
+      ),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     expect(await screen.findByRole("heading", { name: "Bob" })).toBeInTheDocument();
     expect(api.createAgent).toHaveBeenCalledWith({
@@ -137,6 +158,7 @@ describe("bot management", () => {
       label: null,
       description: "A helpful bot",
       instructions: "",
+      sandboxEnabled: false,
     });
   });
 
@@ -148,6 +170,7 @@ describe("bot management", () => {
     expect(screen.getByLabelText("Label (optional)")).toHaveValue("Research");
     expect(screen.getByLabelText("Instructions")).toHaveValue("Cite your sources.");
     fireEvent.change(screen.getByLabelText("Bot name"), { target: { value: "Alice updated" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Sandbox" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(api.updateAgent).toHaveBeenCalledWith(alice.id, {
@@ -155,6 +178,7 @@ describe("bot management", () => {
         label: "Research",
         description: "Find reliable sources.",
         instructions: "Cite your sources.",
+        sandboxEnabled: true,
       }),
     );
   });

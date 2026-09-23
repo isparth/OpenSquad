@@ -489,6 +489,21 @@ textarea {
   font-size: 12px;
   line-height: 1.6;
 }
+.sandbox-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sandbox-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.sandbox-option label {
+  cursor: pointer;
+}
 .form-actions {
   display: flex;
   justify-content: flex-end;

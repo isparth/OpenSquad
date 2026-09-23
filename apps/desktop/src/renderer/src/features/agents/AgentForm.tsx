@@ -16,13 +16,14 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
     label: agent?.label ?? "",
     description: agent?.description ?? "",
     instructions: agent?.instructions ?? "",
+    sandboxEnabled: agent?.sandboxEnabled ?? false,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
-  const change = (field: keyof AgentInput, value: string) =>
+  const change = (field: Exclude<keyof AgentInput, "sandboxEnabled">, value: string) =>
     setDraft((previous) => ({ ...previous, [field]: value }));
 
   async function submit(event: FormEvent) {
@@ -112,6 +113,25 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
             rows={7}
             placeholder="You are a thoughtful research assistant…"
           />
+        </div>
+        <div className="field sandbox-field">
+          <div className="sandbox-option">
+            <input
+              id={`${id}-sandbox`}
+              type="checkbox"
+              role="switch"
+              checked={draft.sandboxEnabled}
+              aria-describedby={`${id}-sandbox-hint`}
+              onChange={(event) =>
+                setDraft((previous) => ({ ...previous, sandboxEnabled: event.target.checked }))
+              }
+            />
+            <label htmlFor={`${id}-sandbox`}>Sandbox</label>
+          </div>
+          <p id={`${id}-sandbox-hint`} className="field-hint">
+            Lets this bot run code and work with files in an OpenAI-hosted sandbox. Off by default,
+            and it may add cost on your OpenAI account. Changes apply to new conversations.
+          </p>
         </div>
       </fieldset>
       {error && (
