@@ -429,6 +429,58 @@ describe("automatic memory updates", () => {
     expect(runtime.destroySession).not.toHaveBeenCalled();
   });
 
+  it("continues polling after a transient listTurns failure", async () => {
+    await addTranscript(agentId, [{ role: "user", text: "Earlier fact" }]);
+    let polls = 0;
+    runtime.listTurns.mockImplementation(async function* (session) {
+      if (!session.externalId.startsWith("extract_")) return;
+      polls++;
+      if (polls === 1) throw new Error("temporary provider read failure");
+      yield {
+        externalId: "extract-root",
+        subagentExternalId: null,
+        status: "succeeded",
+        usage: { inputTokens: 12, outputTokens: 7 },
+        error: null,
+      };
+    });
+    const started = await startManualRefresh();
+    expect(started.statusCode).toBe(202);
+    const update = await waitForUpdate(started.json().update.id, "succeeded");
+    expect(polls).toBeGreaterThan(1);
+    expect(update.changed).toEqual([{ name: "profile", fromVersion: 0, toVersion: 1 }]);
+    expect(
+      await app.db.select().from(memoryDocuments).where(eq(memoryDocuments.ownerId, ownerId)),
+    ).toMatchObject([{ name: "profile", content: "- Name: Parth", version: 1 }]);
+  });
+
+  it.each([
+    { name: "provider mismatch", provider: "other-runtime", externalId: "extract_invalid" },
+    { name: "empty external id", provider: "fake-runtime", externalId: "" },
+  ])(
+    "rejects invalid session references ($name) without destroying them",
+    async ({ provider, externalId }) => {
+      await addTranscript(agentId, [{ role: "user", text: "Earlier fact" }]);
+      runtime.createSession.mockImplementationOnce(async () => ({
+        provider,
+        externalId,
+        model: "gpt-6-luna",
+        status: "idle",
+        environmentExternalId: null,
+      }));
+      const started = await startManualRefresh();
+      expect(started.statusCode).toBe(202);
+      const update = await waitForUpdate(started.json().update.id, "failed");
+      expect(update.errorCode).toBe("provider_failure");
+      expect(runtime.destroySession).not.toHaveBeenCalled();
+      const [row] = await app.db
+        .select()
+        .from(memoryUpdates)
+        .where(eq(memoryUpdates.id, update.id));
+      expect(row?.sessionExternalId).toBeNull();
+    },
+  );
+
   it.each([
     { name: "failed turn", status: "failed" as const, text: "{}", errorCode: "provider_failure" },
     {
@@ -749,6 +801,26 @@ describe("automatic memory updates", () => {
     expect(advanced?.processedThroughSequence).toBe(1n);
   });
 
+  it("limits each source transcript to the newest 200 eligible messages", async () => {
+    const history = await addTranscript(
+      agentId,
+      Array.from(
+        { length: 202 },
+        (_, index): SeedMessage => ({
+          role: "user",
+          text: `message-${index + 1}`,
+        }),
+      ),
+    );
+    const [source] = await app.db.transaction((tx) => selectSources(tx, ownerId, agentId));
+    expect(source?.conversationId).toBe(history.conversationId);
+    expect(source?.throughSequence).toBe("202");
+    expect(source?.earlierMessagesOmitted).toBe(true);
+    expect(source?.messages).toHaveLength(200);
+    expect(source?.messages[0]?.text).toBe("message-3");
+    expect(source?.messages.at(-1)?.text).toBe("message-202");
+  });
+
   it("validates refresh routes, feature support, settings, and GET status shape", async () => {
     const otherAgent = await createBot("other-owner", "Foreign bot");
     const get = await app.inject({ method: "GET", url: `/agents/${agentId}/memory` });
@@ -792,6 +864,12 @@ describe("automatic memory updates", () => {
     const updateId = started.json().update.id as string;
     await app.close();
     appClosed = true;
+    await expect(
+      app.memoryUpdates.refresh(ownerId, agentId, { apiKey: "dummy-user-key" }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      message: "Memory updates are shutting down",
+    });
     const verification = createDatabase(testDatabaseUrl);
     try {
       const [update] = await verification.db

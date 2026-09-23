@@ -16,7 +16,7 @@ import {
   memoryUpdates,
   participants,
 } from "@opensquad/db";
-import { and, desc, eq, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { Transaction } from "../conversations/persistence.js";
 import { renderMemory } from "./render.js";
 
@@ -337,42 +337,30 @@ export function memoryService(db: Database) {
         await lockMemoryOwner(tx, ownerId);
         await tx.delete(memoryDocuments).where(eq(memoryDocuments.ownerId, ownerId));
         await tx.delete(memoryUpdates).where(eq(memoryUpdates.ownerId, ownerId));
-        const sources = await tx
-          .select({
-            conversationId: conversations.id,
-            agentId: participants.agentId,
-            sequence: conversations.messageSequence,
-          })
-          .from(conversations)
-          .innerJoin(
-            participants,
-            and(
-              eq(participants.conversationId, conversations.id),
-              eq(participants.kind, "agent"),
-              isNotNull(participants.agentId),
-            ),
+        await tx.execute(sql`
+          insert into ${memorySources} (
+            "conversation_id",
+            "owner_id",
+            "agent_id",
+            "processed_through_sequence"
           )
-          .where(eq(conversations.ownerId, ownerId));
-        for (const source of sources) {
-          if (!source.agentId) continue;
-          await tx
-            .insert(memorySources)
-            .values({
-              conversationId: source.conversationId,
-              ownerId,
-              agentId: source.agentId,
-              processedThroughSequence: source.sequence,
-            })
-            .onConflictDoUpdate({
-              target: memorySources.conversationId,
-              set: {
-                ownerId,
-                agentId: source.agentId,
-                processedThroughSequence: source.sequence,
-                updatedAt: sql`clock_timestamp()`,
-              },
-            });
-        }
+          select
+            ${conversations.id},
+            ${conversations.ownerId},
+            ${participants.agentId},
+            ${conversations.messageSequence}
+          from ${conversations}
+          inner join ${participants}
+            on ${participants.conversationId} = ${conversations.id}
+          where ${conversations.ownerId} = ${ownerId}
+            and ${participants.kind} = 'agent'
+            and ${participants.agentId} is not null
+          on conflict ("conversation_id") do update set
+            "owner_id" = excluded."owner_id",
+            "agent_id" = excluded."agent_id",
+            "processed_through_sequence" = excluded."processed_through_sequence",
+            "updated_at" = clock_timestamp()
+        `);
       }),
   };
 }

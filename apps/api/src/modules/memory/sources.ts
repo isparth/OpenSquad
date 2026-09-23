@@ -5,7 +5,7 @@ import {
   memorySources,
   participants,
 } from "@opensquad/db";
-import { and, asc, eq, exists, gt, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, isNull, ne, notExists, or, sql } from "drizzle-orm";
 import type { Transaction } from "../conversations/persistence.js";
 import type { ExtractorConversation } from "./extractor-prompt.js";
 
@@ -122,7 +122,7 @@ export async function selectSources(
   const selected: SelectedMemorySource[] = [];
   for (const candidate of candidates) {
     const processedThrough = candidate.processedThroughSequence ?? 0n;
-    const messages = await tx
+    const fetchedMessages = await tx
       .select({ role: conversationMessages.role, content: conversationMessages.content })
       .from(conversationMessages)
       .where(
@@ -132,7 +132,10 @@ export async function selectSources(
           eligibleMessage,
         ),
       )
-      .orderBy(asc(conversationMessages.sequence));
+      .orderBy(desc(conversationMessages.sequence))
+      .limit(201);
+    const earlierEligibleMessagesOmitted = fetchedMessages.length > 200;
+    const messages = fetchedMessages.slice(0, 200).reverse();
     const textMessages = messages.flatMap((message) => {
       const text = message.content
         .filter((part) => part.type === "text")
@@ -147,7 +150,7 @@ export async function selectSources(
     }
 
     let totalCharacters = 0;
-    let earlierMessagesOmitted = false;
+    let earlierMessagesOmitted = earlierEligibleMessagesOmitted;
     const boundedMessages: SelectedMemorySource["messages"] = [];
     for (let index = textMessages.length - 1; index >= 0; index--) {
       const message = textMessages[index];

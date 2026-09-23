@@ -378,6 +378,8 @@ export function memoryUpdater(
         credentials,
         { signal },
       );
+      if (created.provider !== runtime.name || !created.externalId)
+        throw new UpdateFailure("provider_failure");
       session = { provider: created.provider, externalId: created.externalId };
       const [persisted] = await db
         .update(memoryUpdates)
@@ -389,7 +391,12 @@ export function memoryUpdater(
       const deadline = Date.now() + options.turnDeadlineMs;
       let root: RuntimeTurn | null = null;
       while (Date.now() < deadline) {
-        const observed = await firstRootTurn(runtime, session, credentials, signal);
+        let observed: RuntimeTurn | null = null;
+        try {
+          observed = await firstRootTurn(runtime, session, credentials, signal);
+        } catch (error) {
+          if (signal.aborted) throw error;
+        }
         if (Date.now() >= deadline) break;
         if (observed) {
           root = observed;
@@ -469,6 +476,7 @@ export function memoryUpdater(
 
   return {
     async refresh(ownerId, agentId, credentials) {
+      if (closing) throw new MemoryError(503, "Memory updates are shutting down");
       if (!runtime.features.environmentless || !runtime.features.structuredOutput)
         throw new MemoryError(409, "This runtime cannot update memory");
       const pending = startAndLaunch(ownerId, agentId, credentials, "manual");
