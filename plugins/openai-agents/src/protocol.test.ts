@@ -329,7 +329,6 @@ describe("Agents protocol", () => {
     { type: "openai_hosted" },
     { type: "openai_hosted", id: "" },
     { type: "self_hosted", id: "env_123" },
-    { type: "none" },
     { type: secret, id: "env_123" },
   ])("rejects missing hosted IDs and unsupported session environments", (environment) => {
     invalid(() => normalizeSession({ ...session, environment }));
@@ -339,6 +338,13 @@ describe("Agents protocol", () => {
     expect(normalizeSession(session)).toMatchObject({
       status: "idle",
       environmentExternalId: "env_123",
+    });
+  });
+
+  it("normalizes environmentless sessions without an environment ID", () => {
+    expect(normalizeSession({ ...session, environment: { type: "none" } })).toMatchObject({
+      status: "idle",
+      environmentExternalId: null,
     });
   });
 });

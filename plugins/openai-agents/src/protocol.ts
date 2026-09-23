@@ -49,7 +49,10 @@ const sessionSchema = z.object({
   id,
   agent: z.object({ model: id }),
   status: sessionStatusSchema,
-  environment: z.object({ id, type: z.literal("openai_hosted") }),
+  environment: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("none") }),
+    z.object({ id, type: z.literal("openai_hosted") }),
+  ]),
 });
 const usageSchema = z.object({ input_tokens: z.number(), output_tokens: z.number() });
 const turnSchema = z.object({
@@ -112,7 +115,8 @@ export function normalizeSession(input: unknown): RuntimeSession {
     externalId: session.id,
     model: session.agent.model,
     status: sessionStatuses[session.status],
-    environmentExternalId: session.environment.id,
+    environmentExternalId:
+      session.environment.type === "none" ? null : session.environment.id,
   };
 }
 

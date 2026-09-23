@@ -78,6 +78,7 @@ async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
 describe("OpenAIAgentsProvider", () => {
   it("creates an idle hosted session without starting work or storing the caller's key", async () => {
     const { runtime, fetch } = setup();
+    expect(runtime.features.environmentless).toBe(true);
     fetch.mockResolvedValue(json(remoteSession));
     expect(await runtime.createSession({ instructions: "Be helpful" }, credentials)).toEqual({
       ...session,
@@ -95,6 +96,35 @@ describe("OpenAIAgentsProvider", () => {
       environment: { type: "openai_hosted" },
     });
     expect(JSON.stringify(runtime)).not.toContain(credentials.apiKey);
+  });
+
+  it("creates an environmentless session with its first user input", async () => {
+    const { runtime, fetch } = setup();
+    fetch.mockResolvedValue(
+      json({ ...remoteSession, environment: { type: "none" } }),
+    );
+
+    expect(
+      await runtime.createSession(
+        { instructions: "Be helpful", environment: "none", input: "Hi" },
+        credentials,
+      ),
+    ).toMatchObject({ environmentExternalId: null });
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      agent: { model: "gpt-6-astra", instructions: "Be helpful" },
+      environment: { type: "none" },
+      input: [{ role: "user", content: [{ type: "input_text", text: "Hi" }] }],
+    });
+  });
+
+  it.each([
+    { instructions: "Be helpful", environment: "none" as const },
+    { instructions: "Be helpful", environment: "none" as const, input: "  " },
+    { instructions: "Be helpful", environment: "hosted" as const, input: "Hi" },
+  ])("rejects invalid environment input before making a request: %j", async (options) => {
+    const { runtime, fetch } = setup();
+    await expect(runtime.createSession(options, credentials)).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("maps explicit model, bounded subagents, and authorized MCP tool allowlists", async () => {

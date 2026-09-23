@@ -9,6 +9,7 @@ export class FakeRuntimeProvider implements AgentRuntimeProvider {
   readonly name = "fake-runtime";
   readonly features = {
     hostedEnvironment: false,
+    environmentless: false,
     mcp: false,
     subagents: false,
     steering: false,
