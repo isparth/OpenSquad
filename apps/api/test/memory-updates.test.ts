@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { RuntimeMessage, RuntimeTurn } from "@opensquad/core";
+import type { MessageContentPart, RuntimeMessage, RuntimeTurn } from "@opensquad/core";
 import {
   agents,
   conversationMessages,
@@ -33,6 +33,7 @@ import { RuntimeQueue } from "./runtime-queue.js";
 type SeedMessage = {
   role: "user" | "assistant";
   text: string;
+  content?: MessageContentPart[];
   status?: "completed" | "incomplete";
   phase?: "commentary" | "final" | null;
 };
@@ -147,7 +148,9 @@ describe("automatic memory updates", () => {
           role: message.role,
           status: message.status ?? "completed",
           phase: message.phase ?? (message.role === "assistant" ? "final" : null),
-          content: [{ index: 0, type: "text" as const, text: message.text, completed: true }],
+          content: message.content ?? [
+            { index: 0, type: "text" as const, text: message.text, completed: true },
+          ],
         })),
       );
       await app.db
@@ -758,6 +761,34 @@ describe("automatic memory updates", () => {
     const retry = await startManualRefresh();
     expect(retry.statusCode).toBe(200);
     expect(retry.json()).toEqual({ update: null });
+  });
+
+  it("skips command-only transcripts and advances their source cursor", async () => {
+    const history = await addTranscript(agentId, [
+      {
+        role: "assistant",
+        text: "",
+        content: [
+          {
+            index: 0,
+            completed: true,
+            type: "command",
+            command: "cat /workspace/secret.txt",
+            cwd: "/workspace",
+            exitCode: 0,
+            durationMs: 10,
+            output: "secret contents",
+            outputTruncated: false,
+          },
+        ],
+      },
+    ]);
+    expect(await app.db.transaction((tx) => selectSources(tx, ownerId, agentId))).toHaveLength(0);
+    const [source] = await app.db
+      .select()
+      .from(memorySources)
+      .where(eq(memorySources.conversationId, history.conversationId));
+    expect(source?.processedThroughSequence).toBe(1n);
   });
 
   it("filters transcript candidates, takes the three oldest, caps text, and resumes after the source cursor", async () => {

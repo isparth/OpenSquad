@@ -6,6 +6,7 @@ import {
   conversations,
   type Database,
   participants,
+  runtimeSessions,
 } from "@opensquad/db";
 import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -148,6 +149,10 @@ export function conversationsService(db: Database) {
           .where(and(eq(conversationRuns.conversationId, id), eq(conversationRuns.active, true)));
         if (active) active = await refreshObservation(tx, active);
         const history = await readMessages(tx, id, 50);
+        const [session] = await tx
+          .select()
+          .from(runtimeSessions)
+          .where(eq(runtimeSessions.conversationId, id));
         const [current] = await tx
           .select({ sequence: conversations.eventSequence })
           .from(conversations)
@@ -160,6 +165,9 @@ export function conversationsService(db: Database) {
             activeRun: active ? runDto(active) : null,
             latestMessages: history.items,
             nextMessageCursor: history.nextCursor,
+            environment: session
+              ? { type: session.environment, status: session.environmentStatus }
+              : null,
           },
         };
       }),

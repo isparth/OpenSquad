@@ -1,0 +1,2 @@
+ALTER TABLE "runtime_sessions" ADD COLUMN "environment_status" text;--> statement-breakpoint
+ALTER TABLE "runtime_sessions" ADD CONSTRAINT "runtime_sessions_environment_status_check" CHECK ("runtime_sessions"."environment_status" in ('pending', 'ready', 'connected', 'disconnected', 'reset'));
