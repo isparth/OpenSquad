@@ -57,7 +57,7 @@ pnpm db:generate              # after editing packages/db/src/schema
 CSC_IDENTITY_AUTO_DISCOVERY=false pnpm --filter @opensquad/desktop package   # unsigned app in apps/desktop/release/
 ```
 
-Tests hit the real Postgres from docker compose. There is no mock database. Desktop tests run under jsdom with `window.opensquad` stubbed in `apps/desktop/test/setup.ts`.
+Tests hit the real Postgres from docker compose, in a separate `opensquad_test` database that the API test setup creates and migrates (override with `DATABASE_URL`). There is no mock database. Desktop tests run under jsdom with `window.opensquad` stubbed in `apps/desktop/test/setup.ts`.
 
 Workspace packages currently export TypeScript source. The compiled API still imports these packages, so production start uses `node --import tsx` and `tsx` must remain a production dependency. Do not replace it with plain Node unless workspace packages are compiled/exported consistently. `test/production-imports.test.ts` checks the actual start flags against runtime and database imports without loading `.env` or making provider/database requests.
 
