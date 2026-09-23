@@ -383,6 +383,30 @@ describe("OpenAIAgentsProvider", () => {
     expect(url.searchParams.get("order")).toBe("asc");
   });
 
+  it("skips malformed command items and continues saved-message pagination", async () => {
+    const { runtime, fetch } = setup();
+    const malformedCommand = {
+      id: "exec_malformed",
+      type: "command_execution",
+      turn_id: turn.id,
+      cwd: "/workspace",
+      status: "completed",
+      output: "unavailable",
+      exit_code: 1,
+      duration_ms: 0,
+    };
+    fetch.mockResolvedValueOnce(
+      json({
+        data: [malformedCommand, { ...message, id: "msg_after_malformed_command" }],
+        has_more: false,
+        last_id: "msg_after_malformed_command",
+      }),
+    );
+
+    const messages = await collect(runtime.listMessages(session, credentials));
+    expect(messages.map((entry) => entry.externalId)).toEqual(["msg_after_malformed_command"]);
+  });
+
   it("retrieves saved turn outcomes for recovery", async () => {
     const { runtime, fetch } = setup();
     fetch.mockResolvedValue(json({ data: [turn], has_more: false, last_id: turn.id }));

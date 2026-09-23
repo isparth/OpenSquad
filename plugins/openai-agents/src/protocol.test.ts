@@ -361,6 +361,38 @@ describe("Agents protocol", () => {
     }
   });
 
+  it.each(["added", "done"])("ignores malformed command items in item.%s events", (kind) => {
+    expect(
+      normalizeEvent({
+        type: `agent.session.turn.item.${kind}`,
+        event_id: `event_malformed_command_${kind}`,
+        session_id: session.id,
+        turn_id: turn.id,
+        item: commandItem({ command: undefined }),
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps strict validation for malformed normal messages", () => {
+    expect(() =>
+      normalizeEvent({
+        type: "agent.session.turn.item.done",
+        event_id: "event_malformed_message",
+        session_id: session.id,
+        turn_id: turn.id,
+        item: {
+          id: "msg_123",
+          type: "message",
+          turn_id: turn.id,
+          role: "assistant",
+          phase: "final_answer",
+          status: "completed",
+          content: [{ type: "output_text", text: 1 }],
+        },
+      }),
+    ).toThrow("openai-agents: Invalid Agents API response");
+  });
+
   it.each(["pending", "ready", "connected", "disconnected", "reset"])(
     "normalizes environment %s events before the root turn exists",
     (status) => {
@@ -381,6 +413,40 @@ describe("Agents protocol", () => {
       });
     },
   );
+
+  it("normalizes reset events without an environment payload", () => {
+    expect(
+      normalizeEvent({
+        environment_id: "env_123",
+        event_id: "event_environment_reset",
+        reset_count: 1,
+        session_id: session.id,
+        turn_id: null,
+        type: "agent.session.environment.reset",
+      }),
+    ).toEqual({
+      externalId: "event_environment_reset",
+      sessionExternalId: session.id,
+      turnExternalId: null,
+      type: "environment.status",
+      status: "reset",
+    });
+  });
+
+  it("uses the connected event type when its environment status is unexpected", () => {
+    expect(
+      normalizeEvent({
+        type: "agent.session.environment.connected",
+        event_id: "event_environment_connected",
+        session_id: session.id,
+        turn_id: null,
+        environment: { id: "env_123", type: "openai_hosted", status: "unexpected", error: null },
+      }),
+    ).toMatchObject({
+      type: "environment.status",
+      status: "connected",
+    });
+  });
 
   it.each([
     ["context_length_exceeded", "The model context limit was exceeded"],

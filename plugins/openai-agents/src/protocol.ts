@@ -86,7 +86,6 @@ const commandExecutionSchema = z.object({
   exit_code: z.number().int().nullable(),
   duration_ms: z.number().nonnegative().nullable(),
 });
-const environmentStatusSchema = z.enum(["pending", "ready", "connected", "disconnected", "reset"]);
 const eventSchema = z.looseObject({ type: z.string() });
 const scopedEventSchema = z.object({
   event_id: id,
@@ -160,7 +159,9 @@ export function normalizeTurn(input: unknown): RuntimeTurn {
 export function normalizeMessage(input: unknown): RuntimeMessage | null {
   const item = parse(z.looseObject({ type: z.string() }), input);
   if (item.type === "command_execution") {
-    const command = parse(commandExecutionSchema, input);
+    const result = commandExecutionSchema.safeParse(input);
+    if (!result.success) return null;
+    const command = result.data;
     const cappedOutput = capCommandOutput(command.output ?? "");
     return {
       externalId: command.id,
@@ -254,13 +255,15 @@ export function normalizeEvent(input: unknown): RuntimeEvent | null {
       return message ? { ...eventBase(event), type: "message.completed", message } : null;
     }
     case "agent.session.environment.pending":
+      return { ...eventBase(event), type: "environment.status", status: "pending" };
     case "agent.session.environment.ready":
+      return { ...eventBase(event), type: "environment.status", status: "ready" };
     case "agent.session.environment.connected":
+      return { ...eventBase(event), type: "environment.status", status: "connected" };
     case "agent.session.environment.disconnected":
-    case "agent.session.environment.reset": {
-      const environment = parse(z.object({ status: environmentStatusSchema }), event.environment);
-      return { ...eventBase(event), type: "environment.status", status: environment.status };
-    }
+      return { ...eventBase(event), type: "environment.status", status: "disconnected" };
+    case "agent.session.environment.reset":
+      return { ...eventBase(event), type: "environment.status", status: "reset" };
     case "agent.session.environment.failed": {
       const environment = parse(z.object({ error: errorSchema.nullable() }), event.environment);
       return {
