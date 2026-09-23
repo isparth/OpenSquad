@@ -152,7 +152,7 @@ describe("memory panel", () => {
     const save = screen.getByRole("button", { name: "Save" });
     expect(save).toBeEnabled();
     fireEvent.click(save);
-    expect(await screen.findByRole("status")).toHaveTextContent("Saved");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Saved"));
     expect(textarea).toHaveValue("New profile");
     expect(save).toBeDisabled();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -172,6 +172,32 @@ describe("memory panel", () => {
     fireEvent.change(textarea, { target: { value: "x".repeat(4001) } });
     expect(screen.getByText("Too long by 1 characters")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("discards draft changes back to the loaded content", async () => {
+    renderPanel();
+    const textarea = await screen.findByRole("textbox", { name: "About you" });
+    fireEvent.change(textarea, { target: { value: "Unsaved profile" } });
+    expect(screen.getByRole("button", { name: "Discard changes" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(textarea).toHaveValue(startingContent);
+    expect(screen.queryByRole("button", { name: "Discard changes" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("shows a conflict alert with Reload when restoring a revision conflicts", async () => {
+    renderPanel();
+    await screen.findByRole("textbox", { name: "About you" });
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    const oldRevision = await screen.findByText(/Version 1 · Updated from a conversation/);
+    const oldItem = oldRevision.closest<HTMLElement>(".memory-revision");
+    if (!oldItem) throw new Error("Expected revision item");
+    fetchMock.mockResolvedValueOnce(response({ message: "conflict" }, 409));
+    fireEvent.click(within(oldItem).getByRole("button", { name: "Restore" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This memory changed somewhere else. Reload to get the latest version; unsaved changes on this tab will be lost.",
+    );
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 
   it("shows a conflict alert and reloads the latest document while clearing the draft", async () => {
@@ -201,7 +227,7 @@ describe("memory panel", () => {
       target: { value: "Project notes" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByRole("status");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Saved"));
     expect(fetchMock).toHaveBeenCalledWith(
       `${panelUrl}/notes`,
       expect.objectContaining({

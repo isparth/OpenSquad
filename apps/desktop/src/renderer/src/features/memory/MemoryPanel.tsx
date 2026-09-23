@@ -64,7 +64,7 @@ export function MemoryPanel({
     if (data) setMemoryDocuments(data);
   }, [data]);
 
-  const document = memoryDocuments?.find((item) => item.name === selected);
+  const current = memoryDocuments?.find((item) => item.name === selected);
   const tab = tabs.find((item) => item.name === selected);
   if (loading)
     return (
@@ -83,12 +83,12 @@ export function MemoryPanel({
         </button>
       </div>
     );
-  if (!document || !tab || !memoryDocuments) return null;
+  if (!current || !tab || !memoryDocuments) return null;
 
-  const expectedVersion = document.version;
-  const currentText = drafts[selected] ?? document.content;
-  const dirty = drafts[selected] !== undefined && drafts[selected] !== document.content;
-  const excess = Math.max(0, currentText.length - document.limit);
+  const expectedVersion = current.version;
+  const currentText = drafts[selected] ?? current.content;
+  const dirty = drafts[selected] !== undefined && drafts[selected] !== current.content;
+  const excess = Math.max(0, currentText.length - current.limit);
   const busy = disabled || mutationBusy;
 
   function handleEdit(content: string) {
@@ -236,7 +236,7 @@ export function MemoryPanel({
         className="memory-tabpanel"
       >
         <p className="muted memory-scope">
-          {document.scope === "shared"
+          {current.scope === "shared"
             ? "Shared with all your bots."
             : "Only this bot sees these notes."}
         </p>
@@ -245,7 +245,6 @@ export function MemoryPanel({
         </label>
         <textarea
           id={`${id}-editor`}
-          aria-label={tab.label}
           disabled={busy}
           value={currentText}
           placeholder={tab.placeholder}
@@ -253,7 +252,7 @@ export function MemoryPanel({
         />
         <div className={`memory-counter${excess ? " over" : ""}`}>
           <span>
-            {currentText.length} / {document.limit}
+            {currentText.length} / {current.limit}
           </span>
           {excess > 0 && <span>Too long by {excess} characters</span>}
         </div>
@@ -267,11 +266,9 @@ export function MemoryPanel({
             )}
           </div>
         )}
-        {saved && (
-          <p role="status" className="memory-saved">
-            Saved
-          </p>
-        )}
+        <p role="status" className="memory-saved">
+          {saved ? "Saved" : ""}
+        </p>
         <div className="memory-actions">
           <button
             type="button"
@@ -336,7 +333,7 @@ export function MemoryPanel({
                     >
                       {isExpanded ? "Hide" : "View"}
                     </button>
-                    {revision.version !== document.version && (
+                    {revision.version !== current.version && (
                       <button
                         type="button"
                         className="button text-button"
