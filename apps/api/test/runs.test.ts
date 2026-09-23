@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { App } from "../src/app.js";
 import { agentsService } from "../src/modules/agents/service.js";
 import { conversationsService } from "../src/modules/conversations/service.js";
+import { testDatabaseUrl } from "./database-url.js";
 import { FakeRuntimeProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
 import { RuntimeQueue } from "./runtime-queue.js";
@@ -59,7 +60,7 @@ describe("runtime HTTP execution", () => {
   afterEach(async () => {
     await app.close();
     const { createDatabase } = await import("@opensquad/db");
-    const database = createDatabase("postgres://opensquad:opensquad@localhost:5432/opensquad");
+    const database = createDatabase(testDatabaseUrl);
     try {
       await database.db.delete(conversations).where(eq(conversations.id, conversationId));
       await database.db.delete(agents).where(eq(agents.id, agentId));

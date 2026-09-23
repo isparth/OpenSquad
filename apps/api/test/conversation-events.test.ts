@@ -8,6 +8,7 @@ import type { App } from "../src/app.js";
 import { agentsService } from "../src/modules/agents/service.js";
 import { runAdmission } from "../src/modules/conversations/admission.js";
 import { conversationsService } from "../src/modules/conversations/service.js";
+import { testDatabaseUrl } from "./database-url.js";
 import { FakeRuntimeProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
 
@@ -69,7 +70,7 @@ describe("product event streams over HTTP", () => {
     pendingRequests.clear();
     httpAgent.destroy();
     await app.close();
-    const db = createDatabase("postgres://opensquad:opensquad@localhost:5432/opensquad");
+    const db = createDatabase(testDatabaseUrl);
     try {
       await db.db.delete(conversations).where(eq(conversations.id, conversationId));
       await db.db.delete(agents).where(eq(agents.id, agentId));

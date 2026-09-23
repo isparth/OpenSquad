@@ -3,12 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type App, buildApp } from "../src/app.js";
 import { buildCapabilities } from "../src/capabilities/registry.js";
 import { loadEnv } from "../src/config/env.js";
+import { testDatabaseUrl } from "./database-url.js";
 import { FakeRuntimeProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
 
 const env = loadEnv({
   NODE_ENV: "test",
-  DATABASE_URL: "postgres://opensquad:opensquad@localhost:5432/opensquad",
+  DATABASE_URL: testDatabaseUrl,
 });
 const apps: App[] = [];
 

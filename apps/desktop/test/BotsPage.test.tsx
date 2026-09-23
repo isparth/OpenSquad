@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   deleteAgent: vi.fn(),
   uploadAvatar: vi.fn(),
   getAvatar: vi.fn(),
+  getMemory: vi.fn(),
   listConversations: vi.fn(),
 }));
 vi.mock("@/lib/api/client.js", async (original) => ({
@@ -33,6 +34,18 @@ beforeEach(() => {
   vi.resetAllMocks();
   api.listAgents.mockResolvedValue([alice]);
   api.getAgent.mockResolvedValue(alice);
+  api.getMemory.mockResolvedValue([
+    { name: "profile", scope: "shared", content: "", version: 0, limit: 4000, updatedAt: null },
+    {
+      name: "preferences",
+      scope: "shared",
+      content: "",
+      version: 0,
+      limit: 2000,
+      updatedAt: null,
+    },
+    { name: "notes", scope: "agent", content: "", version: 0, limit: 4000, updatedAt: null },
+  ]);
   api.listConversations.mockResolvedValue({ items: [], nextCursor: null });
   vi.mocked(window.opensquad.getRuntimeKeyStatus).mockResolvedValue({
     state: "unavailable",
@@ -88,6 +101,7 @@ describe("bot management", () => {
     expect(await screen.findByTestId("agent-details")).toBeInTheDocument();
     expect(screen.getByText("Find reliable sources.")).toBeInTheDocument();
     expect(screen.getByText("Cite your sources.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Memory" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Edit bot" })).toBeInTheDocument();

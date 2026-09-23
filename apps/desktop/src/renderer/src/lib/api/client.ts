@@ -1,4 +1,11 @@
-import type { ConversationMessage, ConversationSummary, MessageContentPart } from "@opensquad/core";
+import type {
+  ConversationMessage,
+  ConversationSummary,
+  MemoryDocument,
+  MemoryDocumentName,
+  MemoryRevision,
+  MessageContentPart,
+} from "@opensquad/core";
 
 export interface AgentRecord {
   id: string;
@@ -92,6 +99,46 @@ function parsePage<T>(value: unknown, parseItem: (item: unknown) => T) {
   };
 }
 
+function invalidMemory(): never {
+  throw new Error("Invalid memory response");
+}
+
+function parseMemoryDocument(value: unknown): MemoryDocument {
+  if (!isRecord(value)) invalidMemory();
+  if (value.name !== "profile" && value.name !== "preferences" && value.name !== "notes")
+    invalidMemory();
+  if (value.scope !== "shared" && value.scope !== "agent") invalidMemory();
+  if (typeof value.content !== "string") invalidMemory();
+  if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 0)
+    invalidMemory();
+  if (typeof value.limit !== "number" || !Number.isInteger(value.limit) || value.limit <= 0)
+    invalidMemory();
+  if (value.updatedAt !== null && typeof value.updatedAt !== "string") invalidMemory();
+  return {
+    name: value.name,
+    scope: value.scope,
+    content: value.content,
+    version: value.version,
+    limit: value.limit,
+    updatedAt: value.updatedAt,
+  };
+}
+
+function parseMemoryRevision(value: unknown): MemoryRevision {
+  if (!isRecord(value)) invalidMemory();
+  if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1)
+    invalidMemory();
+  if (value.author !== "user" && value.author !== "extraction" && value.author !== "revert")
+    invalidMemory();
+  if (typeof value.content !== "string" || typeof value.createdAt !== "string") invalidMemory();
+  return {
+    version: value.version,
+    author: value.author,
+    content: value.content,
+    createdAt: value.createdAt,
+  };
+}
+
 /** Thin fetch wrapper for the OpenSquad API. Auth headers get added here once Clerk is wired in. */
 export class ApiClient {
   private userId: Promise<string> | undefined;
@@ -150,6 +197,66 @@ export class ApiClient {
       `/conversations/${encodeURIComponent(conversationId)}/messages?limit=50` +
       (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
     return parsePage(await this.get<unknown>(path, signal), parseMessage);
+  }
+
+  async getMemory(agentId: string, signal?: AbortSignal): Promise<MemoryDocument[]> {
+    const value: unknown = await this.get(`/agents/${encodeURIComponent(agentId)}/memory`, signal);
+    if (!isRecord(value) || !Array.isArray(value.documents)) invalidMemory();
+    return value.documents.map(parseMemoryDocument);
+  }
+
+  async saveMemory(
+    agentId: string,
+    name: MemoryDocumentName,
+    content: string,
+    expectedVersion: number,
+  ): Promise<MemoryDocument> {
+    const response = await this.request(
+      `/agents/${encodeURIComponent(agentId)}/memory/${encodeURIComponent(name)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, expectedVersion }),
+      },
+    );
+    const value: unknown = await response.json();
+    if (!isRecord(value)) invalidMemory();
+    return parseMemoryDocument(value.document);
+  }
+
+  async listMemoryRevisions(
+    agentId: string,
+    name: MemoryDocumentName,
+    cursor: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ items: MemoryRevision[]; nextCursor: string | null }> {
+    const path =
+      `/agents/${encodeURIComponent(agentId)}/memory/${encodeURIComponent(name)}/revisions?limit=20` +
+      (cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`);
+    return parsePage(await this.get<unknown>(path, signal), parseMemoryRevision);
+  }
+
+  async revertMemory(
+    agentId: string,
+    name: MemoryDocumentName,
+    version: number,
+    expectedVersion: number,
+  ): Promise<MemoryDocument> {
+    const response = await this.request(
+      `/agents/${encodeURIComponent(agentId)}/memory/${encodeURIComponent(name)}/revert`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version, expectedVersion }),
+      },
+    );
+    const value: unknown = await response.json();
+    if (!isRecord(value)) invalidMemory();
+    return parseMemoryDocument(value.document);
+  }
+
+  async forgetMemory(): Promise<void> {
+    await this.request("/memory", { method: "DELETE" });
   }
 
   health(): Promise<Health> {
