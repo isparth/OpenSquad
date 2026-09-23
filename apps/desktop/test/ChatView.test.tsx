@@ -397,6 +397,24 @@ describe("chat view", () => {
     expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
   });
 
+  it("hides settings guidance when a conflicting send's run reaches the thread", async () => {
+    vi.mocked(window.opensquad.sendMessage).mockRejectedValueOnce(new Error("request conflict"));
+    renderChat();
+    const source = await selectConversation();
+    source.emit("conversation.snapshot", snapshot());
+    const box = screen.getByLabelText("Message");
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    const hint =
+      "If you changed this bot's settings, start a new conversation to keep chatting.";
+    expect(await screen.findByText(hint)).toBeInTheDocument();
+
+    source.emit("run.updated", { run: run() });
+    await waitFor(() => expect(screen.queryByText(hint)).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+  });
+
   it("cancels an active run and hides Cancel once requested", async () => {
     renderChat();
     const source = await selectConversation();

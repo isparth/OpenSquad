@@ -183,6 +183,28 @@ describe("bot management", () => {
     );
   });
 
+  it("turns sandbox off when editing an enabled bot", async () => {
+    const enabled = { ...alice, sandboxEnabled: true };
+    api.getAgent.mockResolvedValue(enabled);
+    await openAliceProfile();
+    api.updateAgent.mockResolvedValue({ ...enabled, sandboxEnabled: false });
+    fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
+    const sandbox = screen.getByRole("switch", { name: "Sandbox" });
+    expect(sandbox).toBeChecked();
+    fireEvent.click(sandbox);
+    expect(sandbox).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(api.updateAgent).toHaveBeenCalledWith(alice.id, {
+        name: "Alice",
+        label: "Research",
+        description: "Find reliable sources.",
+        instructions: "Cite your sources.",
+        sandboxEnabled: false,
+      }),
+    );
+  });
+
   it("preserves form values on save failure and blocks duplicate submits while pending", async () => {
     let rejectSave: (error: Error) => void = () => {};
     api.createAgent.mockReturnValue(

@@ -474,7 +474,7 @@ function Thread({
       {sendError && pending && (
         <div className="chat-banner" role="alert">
           <p className="error-message">{sendError}</p>
-          {sendError === "request conflict" && (
+          {sendError === "request conflict" && !activeRun && (
             <p className="muted">
               If you changed this bot's settings, start a new conversation to keep chatting.
             </p>
