@@ -300,6 +300,63 @@ describe("runtime HTTP execution", () => {
     ).toHaveLength(1);
   });
 
+  it("reports hosted session drift before checking support for the new environment", async () => {
+    await setSandboxEnabled(true);
+    runtime.sendInput.mockImplementation(async () => {
+      queue.emit(turn("running"));
+      queue.emit(turn("succeeded"));
+    });
+    const first = await send();
+    expect(first.statusCode).toBe(202);
+    await waitStatus(first.json().run.id, "succeeded");
+
+    await setSandboxEnabled(false);
+    runtime.features.environmentless = false;
+    const followup = await send();
+    expect(followup.statusCode).toBe(409);
+    expect(followup.json().message).toBe("Bot or runtime settings changed; start a new conversation");
+    expect(
+      await app.db
+        .select()
+        .from(conversationRuns)
+        .where(eq(conversationRuns.conversationId, conversationId)),
+    ).toHaveLength(1);
+  });
+
+  it("does not gate follow-up input to an existing environmentless session", async () => {
+    const queues: RuntimeQueue[] = [];
+    runtime.events.mockImplementation(async () => {
+      const next = new RuntimeQueue();
+      queues.push(next);
+      return next;
+    });
+    runtime.listTurns.mockImplementation(async function* () {
+      yield root("succeeded");
+    });
+    runtime.listMessages.mockImplementation(async function* () {
+      yield savedMessage("user", "saved-user", "Hello");
+      yield savedMessage("assistant", "saved-assistant", "First reply");
+    });
+    runtime.sendInput.mockImplementation(async (_ref, text) => {
+      const activeQueue = queues[1];
+      if (!activeQueue) throw new Error("Second subscription is missing");
+      activeQueue.emit(turn("running", "followup-turn"));
+      activeQueue.emit(turn("succeeded", "followup-turn"));
+    });
+
+    const first = await send();
+    expect(first.statusCode).toBe(202);
+    await waitStatus(first.json().run.id, "succeeded");
+    runtime.features.environmentless = false;
+
+    const followup = await send(randomUUID(), "Second message");
+    expect(followup.statusCode).toBe(202);
+    await waitStatus(followup.json().run.id, "succeeded");
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect(runtime.sendInput).toHaveBeenCalledOnce();
+    expect(runtime.sendInput.mock.calls[0]?.[1]).toBe("Second message");
+  });
+
   it("gates environment choices against runtime features before creating a run", async () => {
     runtime.features.environmentless = false;
     const withoutEnvironment = await send();

@@ -105,16 +105,6 @@ export function runAdmission(
         .from(runtimeSessions)
         .where(eq(runtimeSessions.conversationId, conversationId));
       const environment = agent.sandboxEnabled ? "hosted" : "none";
-      if (environment === "hosted" && !config.features.hostedEnvironment)
-        throw new ConversationError(
-          409,
-          "This runtime does not support sandboxes; turn off the bot's sandbox",
-        );
-      if (environment === "none" && !config.features.environmentless)
-        throw new ConversationError(
-          409,
-          "This runtime requires a sandbox; turn on the bot's sandbox",
-        );
       if (
         session &&
         (session.provider !== config.provider ||
@@ -127,6 +117,16 @@ export function runAdmission(
           "Bot or runtime settings changed; start a new conversation",
         );
       if (!session) {
+        if (environment === "hosted" && !config.features.hostedEnvironment)
+          throw new ConversationError(
+            409,
+            "This runtime does not support sandboxes; turn off the bot's sandbox",
+          );
+        if (environment === "none" && !config.features.environmentless)
+          throw new ConversationError(
+            409,
+            "This runtime requires a sandbox; turn on the bot's sandbox",
+          );
         [session] = await tx
           .insert(runtimeSessions)
           .values({
