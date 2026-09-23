@@ -20,7 +20,6 @@
     "@opensquad/plugin-agentmail": "workspace:*",
     "@opensquad/plugin-composio": "workspace:*",
     "@opensquad/plugin-local-storage": "workspace:*",
-    "@opensquad/plugin-mem0": "workspace:*",
     "@opensquad/plugin-openai-agents": "workspace:*",
     "@opensquad/plugin-supabase-storage": "workspace:*",
     "@opensquad/plugin-trigger": "workspace:*",
