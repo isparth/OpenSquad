@@ -39,9 +39,13 @@ describe("FakeRuntimeProvider", () => {
     const first = new FakeRuntimeProvider();
     const second = new FakeRuntimeProvider();
     first.features.mcp = true;
+    first.features.environmentless = false;
     first.createSession.mockResolvedValueOnce(session);
     expect(await first.createSession({ instructions: "Test" }, credentials)).toBe(session);
     expect(second.features.mcp).toBe(false);
+    expect(second.features.hostedEnvironment).toBe(true);
+    expect(first.features.environmentless).toBe(false);
+    expect(second.features.environmentless).toBe(true);
     expect(second.createSession).not.toHaveBeenCalled();
     await expect(second.createSession({ instructions: "Test" }, credentials)).rejects.toThrow(
       "Configure FakeRuntimeProvider.createSession",

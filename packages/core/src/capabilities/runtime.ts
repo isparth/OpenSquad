@@ -9,9 +9,15 @@ export interface RuntimeMcpServer {
   allowedTools: string[];
 }
 
+export type RuntimeEnvironment = "hosted" | "none";
+
 export interface CreateRuntimeSessionOptions {
   instructions: string;
   model?: string;
+  /** Defaults to "hosted". "none" runs without an execution environment; creation then submits `input` as the first turn. */
+  environment?: RuntimeEnvironment;
+  /** Initial user input submitted at creation. Required (non-blank) with environment "none", rejected otherwise. */
+  input?: string;
   mcpServers?: RuntimeMcpServer[];
   maxConcurrentSubagents?: number;
 }
@@ -87,6 +93,7 @@ export interface AgentRuntimeProvider {
   readonly name: string;
   readonly features: {
     hostedEnvironment: boolean;
+    environmentless: boolean;
     mcp: boolean;
     subagents: boolean;
     steering: boolean;

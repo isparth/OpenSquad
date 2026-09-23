@@ -13,12 +13,16 @@ export interface AgentRecord {
   label: string | null;
   description: string;
   instructions: string;
+  sandboxEnabled: boolean;
   avatarUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export type AgentInput = Pick<AgentRecord, "name" | "label" | "description" | "instructions">;
+export type AgentInput = Pick<
+  AgentRecord,
+  "name" | "label" | "description" | "instructions" | "sandboxEnabled"
+>;
 
 function parseAgent(value: unknown): AgentRecord {
   if (!value || typeof value !== "object") throw new Error("Invalid bot response");
@@ -26,6 +30,7 @@ function parseAgent(value: unknown): AgentRecord {
   for (const key of ["id", "name", "description", "instructions", "createdAt", "updatedAt"]) {
     if (typeof row[key] !== "string") throw new Error("Invalid bot response");
   }
+  if (typeof row.sandboxEnabled !== "boolean") throw new Error("Invalid bot response");
   if (
     (row.label !== null && typeof row.label !== "string") ||
     (row.avatarUrl !== null && typeof row.avatarUrl !== "string")

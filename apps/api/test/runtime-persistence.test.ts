@@ -24,6 +24,13 @@ describe("normalized runtime persistence", () => {
   let conversationId: string;
   let runId: string;
   let token: string;
+  const runtimeFeatures = {
+    hostedEnvironment: true,
+    environmentless: true,
+    mcp: false,
+    subagents: false,
+    steering: false,
+  };
   beforeAll(async () => {
     app = await createTestApp();
   });
@@ -33,11 +40,11 @@ describe("normalized runtime persistence", () => {
     conversationId = (await conversationsService(app.db).create(owner, agentId, null)).conversation
       .id;
     runId = (
-      await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })(
-        owner,
-        conversationId,
-        { text: "Hello", clientRequestId: randomUUID() },
-      )
+      await runAdmission(app.db, {
+        provider: "fake-runtime",
+        model: "test-model",
+        features: runtimeFeatures,
+      })(owner, conversationId, { text: "Hello", clientRequestId: randomUUID() })
     ).run.id;
     token = (await runtimeStore(app.db).claim(owner, runId)) as string;
     const { run } = await runtimeStore(app.db).get(owner, runId);

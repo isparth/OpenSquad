@@ -33,7 +33,17 @@ describe("durable run admission", () => {
     await app.db.delete(agents).where(eq(agents.id, agentId));
   });
   afterAll(() => app.close());
-  const config = { provider: "fake-runtime", model: "test-model" };
+  const config = {
+    provider: "fake-runtime",
+    model: "test-model",
+    features: {
+      hostedEnvironment: true,
+      environmentless: true,
+      mcp: false,
+      subagents: false,
+      steering: false,
+    },
+  };
 
   it("claims a single run and user message for concurrent retries of one intent", async () => {
     const admit = runAdmission(app.db, config);

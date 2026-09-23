@@ -5,7 +5,7 @@ const credentials = { apiKey: "test-key" };
 const session = { provider: "openai-agents", externalId: "sess_123" };
 const remoteSession = {
   id: session.externalId,
-  agent: { model: "gpt-6-astra" },
+  agent: { model: "gpt-6-luna" },
   status: "idle",
   environment: { type: "openai_hosted", id: "env_123" },
 };
@@ -78,10 +78,11 @@ async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
 describe("OpenAIAgentsProvider", () => {
   it("creates an idle hosted session without starting work or storing the caller's key", async () => {
     const { runtime, fetch } = setup();
+    expect(runtime.features.environmentless).toBe(true);
     fetch.mockResolvedValue(json(remoteSession));
     expect(await runtime.createSession({ instructions: "Be helpful" }, credentials)).toEqual({
       ...session,
-      model: "gpt-6-astra",
+      model: "gpt-6-luna",
       status: "idle",
       environmentExternalId: "env_123",
     });
@@ -91,10 +92,38 @@ describe("OpenAIAgentsProvider", () => {
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-key");
     expect(new Headers(init?.headers).get("openai-beta")).toBe("agents=v1");
     expect(JSON.parse(String(init?.body))).toEqual({
-      agent: { model: "gpt-6-astra", instructions: "Be helpful" },
+      agent: { model: "gpt-6-luna", instructions: "Be helpful" },
       environment: { type: "openai_hosted" },
     });
     expect(JSON.stringify(runtime)).not.toContain(credentials.apiKey);
+  });
+
+  it("creates an environmentless session with its first user input", async () => {
+    const { runtime, fetch } = setup();
+    fetch.mockResolvedValue(json({ ...remoteSession, environment: { type: "none" } }));
+
+    expect(
+      await runtime.createSession(
+        { instructions: "Be helpful", environment: "none", input: "  Hi\n" },
+        credentials,
+      ),
+    ).toMatchObject({ environmentExternalId: null });
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      agent: { model: "gpt-6-luna", instructions: "Be helpful" },
+      environment: { type: "none" },
+      input: [{ role: "user", content: [{ type: "input_text", text: "  Hi\n" }] }],
+    });
+  });
+
+  it.each([
+    { instructions: "Be helpful", environment: "none" as const },
+    { instructions: "Be helpful", environment: "none" as const, input: "  " },
+    { instructions: "Be helpful", environment: "hosted" as const, input: "Hi" },
+    { instructions: "Be helpful", input: "Hi" },
+  ])("rejects invalid environment input before making a request: %j", async (options) => {
+    const { runtime, fetch } = setup();
+    await expect(runtime.createSession(options, credentials)).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("maps explicit model, bounded subagents, and authorized MCP tool allowlists", async () => {

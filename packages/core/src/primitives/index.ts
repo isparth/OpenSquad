@@ -12,6 +12,7 @@ export interface Agent {
   description: string;
   avatarUrl?: string;
   instructions: string;
+  sandboxEnabled: boolean;
   createdAt: ISODate;
   updatedAt: ISODate;
 }

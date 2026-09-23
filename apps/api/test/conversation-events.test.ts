@@ -94,11 +94,11 @@ describe("product event streams over HTTP", () => {
       const snapshot = await next();
       expect(snapshot).toContain("event: conversation.snapshot");
       expect(snapshot).toContain("id: 0");
-      await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })(
-        "dev-user",
-        conversationId,
-        { text: "New message", clientRequestId: randomUUID() },
-      );
+      await runAdmission(app.db, {
+        provider: "fake-runtime",
+        model: "test-model",
+        features: runtime.features,
+      })("dev-user", conversationId, { text: "New message", clientRequestId: randomUUID() });
       const created = await next();
       expect(created).toContain("event: message.created");
       expect(created).toContain("New message");
@@ -113,11 +113,11 @@ describe("product event streams over HTTP", () => {
   });
 
   it("replays only events after Last-Event-ID and rejects future/malformed cursors", async () => {
-    await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })(
-      "dev-user",
-      conversationId,
-      { text: "Saved", clientRequestId: randomUUID() },
-    );
+    await runAdmission(app.db, {
+      provider: "fake-runtime",
+      model: "test-model",
+      features: runtime.features,
+    })("dev-user", conversationId, { text: "Saved", clientRequestId: randomUUID() });
     const controller = new AbortController();
     pendingRequests.add(controller);
     const response = await fetchStream(`${address}/conversations/${conversationId}/events`, {
@@ -163,11 +163,11 @@ describe("product event streams over HTTP", () => {
   });
 
   it("resets an expired cursor even when the retained event log is entirely empty", async () => {
-    await runAdmission(app.db, { provider: "fake-runtime", model: "test-model" })(
-      "dev-user",
-      conversationId,
-      { text: "Retained history", clientRequestId: randomUUID() },
-    );
+    await runAdmission(app.db, {
+      provider: "fake-runtime",
+      model: "test-model",
+      features: runtime.features,
+    })("dev-user", conversationId, { text: "Retained history", clientRequestId: randomUUID() });
     await app.db
       .delete(conversationEvents)
       .where(eq(conversationEvents.conversationId, conversationId));

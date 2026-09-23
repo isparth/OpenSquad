@@ -12,6 +12,7 @@ const agent: AgentRecord = {
   label: null,
   description: "",
   instructions: "",
+  sandboxEnabled: false,
   avatarUrl: null,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",
@@ -376,6 +377,41 @@ describe("chat view", () => {
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     await waitFor(() => expect(box).toHaveValue("keep me"));
     expect(box).toBeEnabled();
+  });
+
+  it("explains that bot settings conflicts require a new conversation", async () => {
+    vi.mocked(window.opensquad.sendMessage).mockRejectedValueOnce(new Error("request conflict"));
+    renderChat();
+    const source = await selectConversation();
+    source.emit("conversation.snapshot", snapshot());
+    const box = screen.getByLabelText("Message");
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+
+    expect(
+      await screen.findByText(
+        "If you changed this bot's settings, start a new conversation to keep chatting.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+  });
+
+  it("hides settings guidance when a conflicting send's run reaches the thread", async () => {
+    vi.mocked(window.opensquad.sendMessage).mockRejectedValueOnce(new Error("request conflict"));
+    renderChat();
+    const source = await selectConversation();
+    source.emit("conversation.snapshot", snapshot());
+    const box = screen.getByLabelText("Message");
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    const hint = "If you changed this bot's settings, start a new conversation to keep chatting.";
+    expect(await screen.findByText(hint)).toBeInTheDocument();
+
+    source.emit("run.updated", { run: run() });
+    await waitFor(() => expect(screen.queryByText(hint)).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
   });
 
   it("cancels an active run and hides Cancel once requested", async () => {

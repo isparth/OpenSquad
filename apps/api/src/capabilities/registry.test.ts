@@ -9,6 +9,7 @@ describe("default runtime", () => {
     const capabilities = buildCapabilities(loadEnv(database));
     expect(capabilities.runtime.name).toBe("openai-agents");
     expect(capabilities.runtime.features.hostedEnvironment).toBe(true);
+    expect(capabilities.runtime.features.environmentless).toBe(true);
     expect(capabilities).not.toHaveProperty("model");
     expect(capabilities).not.toHaveProperty("sandbox");
     expect(capabilities.email.name).toBe("agentmail");
@@ -18,7 +19,7 @@ describe("default runtime", () => {
   });
 
   it("validates the model setting and keeps OpenAI credentials optional", () => {
-    expect(loadEnv(database)).toMatchObject({ RUNTIME_MODEL: "gpt-6-astra" });
+    expect(loadEnv(database)).toMatchObject({ RUNTIME_MODEL: "gpt-6-luna" });
     expect(loadEnv({ ...database, OPENAI_API_KEY: "" }).OPENAI_API_KEY).toBeUndefined();
     expect(loadEnv({ ...database, RUNTIME_MODEL: "custom-model" }).RUNTIME_MODEL).toBe(
       "custom-model",

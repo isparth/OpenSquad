@@ -6,7 +6,7 @@ const session = { provider: "openai-agents", externalId: "sess_transport" };
 const remoteSession = {
   id: session.externalId,
   status: "idle",
-  agent: { model: "gpt-6-astra" },
+  agent: { model: "gpt-6-luna" },
   environment: { type: "openai_hosted", id: "env_transport" },
 };
 

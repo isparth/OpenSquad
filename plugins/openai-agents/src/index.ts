@@ -22,27 +22,45 @@ import {
   parse,
 } from "./protocol.js";
 
-const sessionOptionsSchema = z.object({
-  instructions: z.string(),
-  model: z.string().trim().min(1).optional(),
-  maxConcurrentSubagents: z.number().int().min(1).max(16).optional(),
-  mcpServers: z
-    .array(
-      z.object({
-        name: z.string().regex(/^[a-zA-Z0-9_-]+$/),
-        url: z.url().refine((value) => {
-          const url = new URL(value);
-          return url.protocol === "https:" && !url.username && !url.password && !url.hash;
-        }, "MCP servers require HTTPS and credentials supplied separately"),
-        allowedTools: z.array(z.string().min(1)).min(1),
-      }),
-    )
-    .refine(
-      (servers) => new Set(servers.map((server) => server.name)).size === servers.length,
-      "MCP server names must be unique",
-    )
-    .optional(),
-});
+const sessionOptionsSchema = z
+  .object({
+    instructions: z.string(),
+    model: z.string().trim().min(1).optional(),
+    environment: z.enum(["hosted", "none"]).optional(),
+    input: z.string().optional(),
+    maxConcurrentSubagents: z.number().int().min(1).max(16).optional(),
+    mcpServers: z
+      .array(
+        z.object({
+          name: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+          url: z.url().refine((value) => {
+            const url = new URL(value);
+            return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+          }, "MCP servers require HTTPS and credentials supplied separately"),
+          allowedTools: z.array(z.string().min(1)).min(1),
+        }),
+      )
+      .refine(
+        (servers) => new Set(servers.map((server) => server.name)).size === servers.length,
+        "MCP server names must be unique",
+      )
+      .optional(),
+  })
+  .superRefine((config, context) => {
+    if (config.environment === "none" && !config.input?.trim()) {
+      context.addIssue({
+        code: "custom",
+        path: ["input"],
+        message: "Input is required without an environment",
+      });
+    } else if (config.environment !== "none" && config.input !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["input"],
+        message: "Input is only accepted without an environment",
+      });
+    }
+  });
 
 function requestError(error: unknown): Error {
   if (error instanceof OpenAI.APIError) {
@@ -58,6 +76,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
   readonly name = "openai-agents";
   readonly features = Object.freeze({
     hostedEnvironment: true,
+    environmentless: true,
     mcp: true,
     subagents: true,
     steering: true,
@@ -70,7 +89,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
       .string()
       .trim()
       .min(1)
-      .parse(options.defaultModel ?? "gpt-6-astra");
+      .parse(options.defaultModel ?? "gpt-6-luna");
     this.#fetch = options.fetch;
   }
 
@@ -148,6 +167,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
     request: RuntimeRequestOptions = {},
   ): Promise<RuntimeSession> {
     const config = sessionOptionsSchema.parse(options);
+    const initialInput = config.environment === "none" ? config.input : undefined;
     const { data: response } = await this.#request<unknown>(credentials, {
       method: "post",
       path: "/agents/sessions",
@@ -181,7 +201,17 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
                 })),
               }),
         },
-        environment: { type: "openai_hosted" },
+        environment: config.environment === "none" ? { type: "none" } : { type: "openai_hosted" },
+        ...(initialInput === undefined
+          ? {}
+          : {
+              input: [
+                {
+                  role: "user",
+                  content: [{ type: "input_text", text: initialInput }],
+                },
+              ],
+            }),
       },
     });
     return normalizeSession(response);
