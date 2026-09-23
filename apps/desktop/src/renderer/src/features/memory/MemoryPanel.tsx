@@ -1,8 +1,9 @@
 import type { MemoryDocument, MemoryDocumentName, MemoryRevision } from "@opensquad/core";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { type ApiClient, ApiError, getApiClient } from "@/lib/api/client.js";
+import { type ApiClient, ApiError, getApiClient, type MemoryResponse } from "@/lib/api/client.js";
 import { useApiResource } from "../agents/useApiResource.js";
 import { ForgetMemoryDialog } from "./ForgetMemoryDialog.js";
+import { MemoryReviews } from "./MemoryReviews.js";
 import { MemoryUpdates } from "./MemoryUpdates.js";
 
 const tabs: Array<{ name: MemoryDocumentName; label: string; placeholder: string }> = [
@@ -45,6 +46,10 @@ export function MemoryPanel({
   );
   const { data, error, loading, refresh } = useApiResource(load);
   const [memoryDocuments, setMemoryDocuments] = useState<MemoryDocument[] | null>(null);
+  const [pendingReviewCount, setPendingReviewCount] = useState(data?.pendingReviewCount ?? 0);
+  const [reviewRefetchError, setReviewRefetchError] = useState<string | null>(null);
+  const reviewRefetchController = useRef<AbortController | null>(null);
+  const currentAgentId = useRef(agentId);
   const [selected, setSelected] = useState<MemoryDocumentName>("profile");
   const [drafts, setDrafts] = useState<
     Partial<Record<MemoryDocumentName, { content: string; baseVersion: number }>>
@@ -64,8 +69,22 @@ export function MemoryPanel({
   const tabRefs = useRef<Partial<Record<MemoryDocumentName, HTMLButtonElement | null>>>({});
 
   useEffect(() => {
-    if (data) setMemoryDocuments(data.documents);
+    if (data) {
+      setMemoryDocuments(data.documents);
+      setPendingReviewCount(data.pendingReviewCount);
+    }
   }, [data]);
+
+  useEffect(() => {
+    if (currentAgentId.current !== agentId) {
+      reviewRefetchController.current?.abort();
+      reviewRefetchController.current = null;
+      currentAgentId.current = agentId;
+      setReviewRefetchError(null);
+    }
+  }, [agentId]);
+
+  useEffect(() => () => reviewRefetchController.current?.abort(), []);
 
   const current = memoryDocuments?.find((item) => item.name === selected);
   const tab = tabs.find((item) => item.name === selected);
@@ -139,9 +158,31 @@ export function MemoryPanel({
     }
   }
 
-  function handleUpdateFinished(documents: MemoryDocument[]) {
-    setMemoryDocuments(documents);
+  function handleUpdateFinished(memory: MemoryResponse) {
+    setMemoryDocuments(memory.documents);
+    setPendingReviewCount(memory.pendingReviewCount);
+    setReviewRefetchError(null);
     if (historyOpen) void loadHistory(selected, null);
+  }
+
+  async function handleReviewsChanged() {
+    const controller = new AbortController();
+    reviewRefetchController.current?.abort();
+    reviewRefetchController.current = controller;
+    try {
+      const api = await getApiClient();
+      const memory = await api.getMemory(agentId, controller.signal);
+      if (controller.signal.aborted || currentAgentId.current !== agentId) return;
+      setMemoryDocuments(memory.documents);
+      setPendingReviewCount(memory.pendingReviewCount);
+      setReviewRefetchError(null);
+      if (historyOpen) void loadHistory(selected, null);
+    } catch {
+      if (!controller.signal.aborted && currentAgentId.current === agentId)
+        setReviewRefetchError("Couldn't refresh memory after the review.");
+    } finally {
+      if (reviewRefetchController.current === controller) reviewRefetchController.current = null;
+    }
   }
 
   async function save() {
@@ -225,6 +266,17 @@ export function MemoryPanel({
         disabled={busy}
         onFinished={handleUpdateFinished}
       />
+      <MemoryReviews
+        agentId={agentId}
+        pendingCount={pendingReviewCount}
+        disabled={busy}
+        onChanged={handleReviewsChanged}
+      />
+      {reviewRefetchError && (
+        <p className="error-message memory-review-refetch-error" role="alert">
+          {reviewRefetchError}
+        </p>
+      )}
       <div className="memory-tabs" role="tablist" aria-label="Memory documents">
         {tabs.map((item, index) => (
           <button

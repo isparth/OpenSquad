@@ -1,6 +1,7 @@
 import type {
   MemoryDocument,
   MemoryDocumentName,
+  MemoryReview,
   MemoryRevision,
   MemoryUpdate,
 } from "@opensquad/core";
@@ -52,11 +53,42 @@ function memoryUpdate(overrides: Partial<MemoryUpdate> = {}): MemoryUpdate {
   };
 }
 
+function memoryReview(overrides: Partial<MemoryReview> = {}): MemoryReview {
+  return {
+    updateId: "88888888-8888-4888-8888-888888888888",
+    agentId,
+    agentName: "Live memory check",
+    trigger: "manual",
+    createdAt: updatedAt,
+    finishedAt: updatedAt,
+    sources: [
+      {
+        conversationId: "99999999-9999-4999-8999-999999999999",
+        title: "Prior facts",
+        startedAt: updatedAt,
+      },
+    ],
+    changes: [
+      {
+        name: "profile",
+        fromVersion: 2,
+        toVersion: 3,
+        before: startingContent,
+        after: "- Name: Test",
+        current: true,
+      },
+    ],
+    ...overrides,
+  };
+}
+
 let documents: MemoryDocument[];
 let revisions: MemoryRevision[];
 let autoUpdate: boolean;
 let pendingReviewCount: number;
 let lastUpdate: MemoryUpdate | null;
+let reviews: MemoryReview[];
+let nextReviewCursor: string | null;
 let nextMemoryResponse: {
   documents: MemoryDocument[];
   autoUpdate: boolean;
@@ -115,6 +147,8 @@ beforeEach(() => {
   autoUpdate = true;
   pendingReviewCount = 0;
   lastUpdate = null;
+  reviews = [];
+  nextReviewCursor = null;
   nextMemoryResponse = null;
   memoryReads = 0;
   vi.mocked(window.opensquad.getRuntimeKeyStatus)
@@ -128,6 +162,12 @@ beforeEach(() => {
       memoryReads++;
       if (memoryReads > 1 && nextMemoryResponse) return response(nextMemoryResponse);
       return response({ documents, autoUpdate, lastUpdate, pendingReviewCount });
+    }
+    if (method === "GET" && url.pathname.endsWith("/memory/reviews")) {
+      return response({ items: reviews, nextCursor: nextReviewCursor });
+    }
+    if (method === "POST" && url.pathname.includes("/memory/updates/")) {
+      return new Response(null, { status: 204 });
     }
     if (method === "PATCH" && url.pathname === "/memory/settings") {
       autoUpdate = (JSON.parse(String(init?.body)) as { autoUpdate: boolean }).autoUpdate;
@@ -411,11 +451,12 @@ describe("memory panel", () => {
       finishedAt: updatedAt,
     });
     vi.mocked(window.opensquad.refreshMemory).mockResolvedValueOnce({ update: running });
+    reviews = [memoryReview()];
     nextMemoryResponse = {
       documents: [document("profile", "- Name: Test", 3, 4000), ...documents.slice(1)],
       autoUpdate: true,
       lastUpdate: finished,
-      pendingReviewCount: 0,
+      pendingReviewCount: 1,
     };
     renderPanel();
     await screen.findByRole("textbox", { name: "About you" });
@@ -436,6 +477,8 @@ describe("memory panel", () => {
       `Updated ${new Date(updatedAt).toLocaleString()}: About you. 15 tokens used.`,
     );
     expect(screen.getByRole("textbox", { name: "About you" })).toHaveValue("- Name: Test");
+    await flushMicrotasks();
+    expect(screen.getByRole("heading", { name: "Changes to review (1)" })).toBeInTheDocument();
   });
 
   it("keeps a stale draft base version through extraction and exposes the conflict path", async () => {
@@ -507,6 +550,54 @@ describe("memory panel", () => {
         method: "PATCH",
         body: JSON.stringify({ content: "My draft before refresh", expectedVersion: 2 }),
       }),
+    );
+  });
+
+  it("keeps a review with a quiet refetch and preserves an editor draft", async () => {
+    pendingReviewCount = 1;
+    reviews = [memoryReview()];
+    nextMemoryResponse = {
+      documents,
+      autoUpdate: true,
+      lastUpdate: null,
+      pendingReviewCount: 0,
+    };
+    renderPanel();
+    const editor = await screen.findByRole("textbox", { name: "About you" });
+    await screen.findByText("Shared with all your bots");
+    fireEvent.change(editor, { target: { value: "Draft before Keep" } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+
+    await waitFor(() => expect(memoryReads).toBe(2));
+    expect(editor).toHaveValue("Draft before Keep");
+    expect(screen.queryByText("Loading memory…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Shared with all your bots")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/memory/updates/88888888-8888-4888-8888-888888888888/keep",
+      expect.objectContaining({ method: "POST", body: "{}" }),
+    );
+  });
+
+  it("shows restored editor content after Undo", async () => {
+    documents = [document("profile", "- Name: Test", 3, 4000), ...documents.slice(1)];
+    pendingReviewCount = 1;
+    reviews = [memoryReview()];
+    nextMemoryResponse = {
+      documents: [document("profile", "", 4, 4000), ...documents.slice(1)],
+      autoUpdate: true,
+      lastUpdate: null,
+      pendingReviewCount: 0,
+    };
+    renderPanel();
+    const editor = await screen.findByRole("textbox", { name: "About you" });
+    await screen.findByText("Shared with all your bots");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(editor).toHaveValue(""));
+    expect(screen.queryByText("Shared with all your bots")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/memory/updates/88888888-8888-4888-8888-888888888888/undo",
+      expect.objectContaining({ method: "POST", body: "{}" }),
     );
   });
 
