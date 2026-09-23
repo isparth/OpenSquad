@@ -27,6 +27,7 @@ describe("normalized runtime persistence", () => {
   const runtimeFeatures = {
     hostedEnvironment: true,
     environmentless: true,
+    structuredOutput: true,
     mcp: false,
     subagents: false,
     steering: false,

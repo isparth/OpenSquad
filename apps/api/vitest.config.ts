@@ -3,6 +3,7 @@ import { testDatabaseUrl } from "./test/database-url.js";
 
 export default defineConfig({
   test: {
+    fileParallelism: false,
     include: ["src/**/*.test.ts", "test/**/*.test.ts"],
     globalSetup: ["./test/global-setup.ts"],
     env: {

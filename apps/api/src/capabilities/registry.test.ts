@@ -10,6 +10,7 @@ describe("default runtime", () => {
     expect(capabilities.runtime.name).toBe("openai-agents");
     expect(capabilities.runtime.features.hostedEnvironment).toBe(true);
     expect(capabilities.runtime.features.environmentless).toBe(true);
+    expect(capabilities.runtime.features.structuredOutput).toBe(true);
     expect(capabilities).not.toHaveProperty("model");
     expect(capabilities).not.toHaveProperty("sandbox");
     expect(capabilities.email.name).toBe("agentmail");

@@ -39,6 +39,7 @@ describe("durable run admission", () => {
     features: {
       hostedEnvironment: true,
       environmentless: true,
+      structuredOutput: true,
       mcp: false,
       subagents: false,
       steering: false,

@@ -68,7 +68,13 @@ export function runAdmission(
             and(eq(conversationMessages.runId, existing.id), eq(conversationMessages.role, "user")),
           );
         if (!message) throw new Error("Admitted input is missing");
-        return { fresh: false, message: messageDto(message), run: runDto(existing) };
+        return {
+          fresh: false,
+          sessionCreated: false,
+          agentId: member.participant.agentId,
+          message: messageDto(message),
+          run: runDto(existing),
+        };
       }
       if (!agent || member.participant.deletedAt)
         throw new ConversationError(404, "Bot is no longer available");
@@ -105,6 +111,7 @@ export function runAdmission(
         .select()
         .from(runtimeSessions)
         .where(eq(runtimeSessions.conversationId, conversationId));
+      const sessionCreated = !session;
       const environment = agent.sandboxEnabled ? "hosted" : "none";
       if (
         session &&
@@ -184,6 +191,12 @@ export function runAdmission(
         message: messageDto(message),
       });
       await appendEvent(tx, conversationId, "run.updated", run.id, { run: runDto(run) });
-      return { fresh: true, message: messageDto(message), run: runDto(run) };
+      return {
+        fresh: true,
+        sessionCreated,
+        agentId: agent.id,
+        message: messageDto(message),
+        run: runDto(run),
+      };
     });
 }

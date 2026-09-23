@@ -16,3 +16,24 @@ export interface MemoryRevision {
   content: string;
   createdAt: string;
 }
+
+export type MemoryUpdateStatus = "running" | "succeeded" | "failed";
+export type MemoryUpdateTrigger = "auto" | "manual";
+
+export interface MemoryUpdateChange {
+  name: MemoryDocumentName;
+  fromVersion: number;
+  toVersion: number;
+}
+
+export interface MemoryUpdate {
+  id: string;
+  agentId: string;
+  trigger: MemoryUpdateTrigger;
+  status: MemoryUpdateStatus;
+  changed: MemoryUpdateChange[];
+  errorCode: string | null;
+  usage: { inputTokens: number; outputTokens: number } | null;
+  createdAt: string;
+  finishedAt: string | null;
+}

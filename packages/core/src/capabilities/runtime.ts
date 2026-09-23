@@ -18,6 +18,8 @@ export interface CreateRuntimeSessionOptions {
   environment?: RuntimeEnvironment;
   /** Initial user input submitted at creation. Required (non-blank) with environment "none", rejected otherwise. */
   input?: string;
+  /** JSON Schema the final assistant text must match. */
+  outputSchema?: Record<string, unknown>;
   mcpServers?: RuntimeMcpServer[];
   maxConcurrentSubagents?: number;
 }
@@ -94,6 +96,7 @@ export interface AgentRuntimeProvider {
   readonly features: {
     hostedEnvironment: boolean;
     environmentless: boolean;
+    structuredOutput: boolean;
     mcp: boolean;
     subagents: boolean;
     steering: boolean;
