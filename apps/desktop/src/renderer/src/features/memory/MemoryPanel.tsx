@@ -61,7 +61,7 @@ export function MemoryPanel({
   const tabRefs = useRef<Partial<Record<MemoryDocumentName, HTMLButtonElement | null>>>({});
 
   useEffect(() => {
-    if (data) setMemoryDocuments(data);
+    if (data) setMemoryDocuments(data.documents);
   }, [data]);
 
   const current = memoryDocuments?.find((item) => item.name === selected);
