@@ -201,8 +201,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
                 })),
               }),
         },
-        environment:
-          config.environment === "none" ? { type: "none" } : { type: "openai_hosted" },
+        environment: config.environment === "none" ? { type: "none" } : { type: "openai_hosted" },
         ...(initialInput === undefined
           ? {}
           : {

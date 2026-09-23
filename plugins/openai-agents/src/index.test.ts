@@ -100,9 +100,7 @@ describe("OpenAIAgentsProvider", () => {
 
   it("creates an environmentless session with its first user input", async () => {
     const { runtime, fetch } = setup();
-    fetch.mockResolvedValue(
-      json({ ...remoteSession, environment: { type: "none" } }),
-    );
+    fetch.mockResolvedValue(json({ ...remoteSession, environment: { type: "none" } }));
 
     expect(
       await runtime.createSession(

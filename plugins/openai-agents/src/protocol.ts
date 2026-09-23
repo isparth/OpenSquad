@@ -115,8 +115,7 @@ export function normalizeSession(input: unknown): RuntimeSession {
     externalId: session.id,
     model: session.agent.model,
     status: sessionStatuses[session.status],
-    environmentExternalId:
-      session.environment.type === "none" ? null : session.environment.id,
+    environmentExternalId: session.environment.type === "none" ? null : session.environment.id,
   };
 }
 

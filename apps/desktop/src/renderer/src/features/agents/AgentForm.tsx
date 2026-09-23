@@ -121,6 +121,7 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
               type="checkbox"
               role="switch"
               checked={draft.sandboxEnabled}
+              aria-checked={draft.sandboxEnabled}
               aria-describedby={`${id}-sandbox-hint`}
               onChange={(event) =>
                 setDraft((previous) => ({ ...previous, sandboxEnabled: event.target.checked }))

@@ -89,7 +89,9 @@ export const runtimeSessions = pgTable(
     instructions: text("instructions").notNull(),
     model: text("model").notNull(),
     // Admission always sets this explicitly; the default preserves legacy hosted sessions.
-    environment: text("environment", { enum: ["hosted", "none"] }).notNull().default("hosted"),
+    environment: text("environment", { enum: ["hosted", "none"] })
+      .notNull()
+      .default("hosted"),
   },
   (table) => [
     uniqueIndex("runtime_sessions_conversation_idx").on(table.conversationId),

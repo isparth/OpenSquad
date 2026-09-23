@@ -44,11 +44,7 @@ describe("normalized runtime persistence", () => {
         provider: "fake-runtime",
         model: "test-model",
         features: runtimeFeatures,
-      })(
-        owner,
-        conversationId,
-        { text: "Hello", clientRequestId: randomUUID() },
-      )
+      })(owner, conversationId, { text: "Hello", clientRequestId: randomUUID() })
     ).run.id;
     token = (await runtimeStore(app.db).claim(owner, runId)) as string;
     const { run } = await runtimeStore(app.db).get(owner, runId);

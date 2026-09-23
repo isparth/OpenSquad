@@ -163,10 +163,9 @@ describe("runtime HTTP execution", () => {
     const history = (
       await app.inject({ method: "GET", url: `/conversations/${conversationId}/messages` })
     ).json().items;
-    expect(history.map((message: { content: Array<{ text: string }> }) => message.content[0]?.text)).toEqual([
-      "Hello",
-      "Fast reply",
-    ]);
+    expect(
+      history.map((message: { content: Array<{ text: string }> }) => message.content[0]?.text),
+    ).toEqual(["Hello", "Fast reply"]);
     expect(runtime.sendInput).not.toHaveBeenCalled();
     expect(queue.close).toHaveBeenCalled();
   });
@@ -290,7 +289,9 @@ describe("runtime HTTP execution", () => {
 
     const response = await send();
     expect(response.statusCode).toBe(409);
-    expect(response.json().message).toBe("Bot or runtime settings changed; start a new conversation");
+    expect(response.json().message).toBe(
+      "Bot or runtime settings changed; start a new conversation",
+    );
     expect(
       await app.db
         .select()
