@@ -57,7 +57,6 @@ describe("application capability overrides", () => {
     const app = await track(buildApp(env, { capabilities: overrides }));
     expect(app.capabilities.runtime).toBe(runtime);
     expect(app.capabilities).toMatchObject({
-      memory: { name: "mem0" },
       email: { name: "agentmail" },
       phone: { name: "vapi" },
       tools: { name: "composio" },
@@ -101,7 +100,7 @@ describe("application capability overrides", () => {
     expect(first.capabilities.runtime).toBe(firstRuntime);
     expect(second.capabilities.runtime).toBe(secondRuntime);
     expect(defaultApp.capabilities.runtime.name).toBe("openai-agents");
-    expect(first.capabilities.memory).not.toBe(second.capabilities.memory);
+    expect(first.capabilities.email).not.toBe(second.capabilities.email);
     expect(first.capabilities.storage).not.toBe(second.capabilities.storage);
     await first.close();
     expect(firstRuntime.cancel).not.toHaveBeenCalled();

@@ -47,9 +47,6 @@ importers:
       '@opensquad/plugin-local-storage':
         specifier: workspace:*
         version: link:../../plugins/local-storage
-      '@opensquad/plugin-mem0':
-        specifier: workspace:*
-        version: link:../../plugins/mem0
       '@opensquad/plugin-openai-agents':
         specifier: workspace:*
         version: link:../../plugins/openai-agents
@@ -232,19 +229,6 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.3)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
 
   plugins/local-storage:
-    dependencies:
-      '@opensquad/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-    devDependencies:
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.0
-        version: 3.2.7(@types/debug@4.1.13)(@types/node@24.13.3)(jiti@2.7.0)(jsdom@30.0.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
-
-  plugins/mem0:
     dependencies:
       '@opensquad/core':
         specifier: workspace:*
