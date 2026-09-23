@@ -1,3 +1,4 @@
+import type { MemoryReview } from "@opensquad/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type AgentRecord, ApiClient, ApiError } from "@/lib/api/client.js";
 
@@ -283,6 +284,31 @@ const memoryUpdate = {
   createdAt: "2026-09-15T00:00:00.000Z",
   finishedAt: "2026-09-15T00:00:05.000Z",
 };
+const memoryReview: MemoryReview = {
+  updateId: memoryUpdate.id,
+  agentId: memoryUpdate.agentId,
+  agentName: "Test bot",
+  trigger: "auto",
+  createdAt: memoryUpdate.createdAt,
+  finishedAt: memoryUpdate.finishedAt,
+  sources: [
+    {
+      conversationId: "88888888-8888-4888-8888-888888888888",
+      title: "Earlier context",
+      startedAt: "2026-09-14T00:00:00.000Z",
+    },
+  ],
+  changes: [
+    {
+      name: "profile",
+      fromVersion: 0,
+      toVersion: 1,
+      before: "",
+      after: "- Name: Test",
+      current: true,
+    },
+  ],
+};
 
 describe("memory client", () => {
   it("parses memory documents and revision pages into checked fields", async () => {
@@ -293,6 +319,7 @@ describe("memory client", () => {
           documents: [{ ...memoryDocument, extra: "ignored" }],
           autoUpdate: true,
           lastUpdate: memoryUpdate,
+          pendingReviewCount: 1,
           reviewList: [],
         }),
       ),
@@ -301,6 +328,7 @@ describe("memory client", () => {
       documents: [memoryDocument],
       autoUpdate: true,
       lastUpdate: memoryUpdate,
+      pendingReviewCount: 1,
     });
     fetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ items: [memoryRevision], nextCursor: "2" })),
@@ -311,6 +339,27 @@ describe("memory client", () => {
     });
   });
 
+  it("rejects a missing or invalid pending review count", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    for (const pendingReviewCount of [-1, 1.5, "1", null]) {
+      fetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            documents: [],
+            autoUpdate: true,
+            lastUpdate: null,
+            pendingReviewCount,
+          }),
+        ),
+      );
+      await expect(api.getMemory("agent-1")).rejects.toThrow("Invalid memory response");
+    }
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ documents: [], autoUpdate: true, lastUpdate: null })),
+    );
+    await expect(api.getMemory("agent-1")).rejects.toThrow("Invalid memory response");
+  });
+
   it("rejects malformed memory documents and revisions", async () => {
     const fetch = vi.mocked(globalThis.fetch);
     for (const document of [
@@ -319,7 +368,14 @@ describe("memory client", () => {
       { name: "profile", scope: "shared", content: "", version: 0, updatedAt: null },
     ]) {
       fetch.mockResolvedValueOnce(
-        new Response(JSON.stringify({ documents: [document], autoUpdate: true, lastUpdate: null })),
+        new Response(
+          JSON.stringify({
+            documents: [document],
+            autoUpdate: true,
+            lastUpdate: null,
+            pendingReviewCount: 0,
+          }),
+        ),
       );
       await expect(api.getMemory("agent-1")).rejects.toThrow("Invalid memory response");
     }
@@ -344,7 +400,9 @@ describe("memory client", () => {
     { ...memoryUpdate, finishedAt: 42 },
   ])("rejects malformed lastUpdate records", async (lastUpdate) => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ documents: [], autoUpdate: true, lastUpdate })),
+      new Response(
+        JSON.stringify({ documents: [], autoUpdate: true, lastUpdate, pendingReviewCount: 0 }),
+      ),
     );
     await expect(api.getMemory("agent-1")).rejects.toThrow("Invalid memory response");
   });
@@ -362,6 +420,7 @@ describe("memory client", () => {
           documents: [],
           autoUpdate: true,
           lastUpdate: futureUpdate,
+          pendingReviewCount: 0,
           reviewList: [],
         }),
       ),
@@ -370,6 +429,7 @@ describe("memory client", () => {
       documents: [],
       autoUpdate: true,
       lastUpdate: memoryUpdate,
+      pendingReviewCount: 0,
     });
   });
 
@@ -390,6 +450,79 @@ describe("memory client", () => {
     );
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ autoUpdate: "false" })));
     await expect(api.setMemoryAutoUpdate(false)).rejects.toThrow("Invalid memory response");
+  });
+
+  it("lists validated memory reviews with cursors and an abort signal", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    const controller = new AbortController();
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ items: [memoryReview], nextCursor: "next" })),
+    );
+    await expect(api.listMemoryReviews("agent id", null, controller.signal)).resolves.toEqual({
+      items: [memoryReview],
+      nextCursor: "next",
+    });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/agents/agent%20id/memory/reviews?limit=10",
+      expect.objectContaining({ signal: controller.signal, redirect: "error" }),
+    );
+
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null })));
+    await expect(api.listMemoryReviews("agent id", "cursor 2")).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+    });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/agents/agent%20id/memory/reviews?limit=10&cursor=cursor%202",
+      expect.anything(),
+    );
+  });
+
+  it("rejects malformed review changes and sources", async () => {
+    const firstChange = memoryReview.changes[0];
+    if (!firstChange) throw new Error("Expected review change");
+    const malformed = [
+      { ...memoryReview, changes: [{ ...firstChange, before: 1 }] },
+      { ...memoryReview, changes: [] },
+      { ...memoryReview, sources: [{ conversationId: "conversation", title: null }] },
+    ];
+    for (const item of malformed) {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response(JSON.stringify({ items: [item], nextCursor: null })),
+      );
+      await expect(api.listMemoryReviews("agent-1", null)).rejects.toThrow(
+        "Invalid memory response",
+      );
+    }
+  });
+
+  it("keeps and undoes reviews with empty JSON bodies and preserves 409 status", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(api.keepMemoryUpdate(memoryReview.updateId)).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenLastCalledWith(
+      `http://localhost:3000/memory/updates/${memoryReview.updateId}/keep`,
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        redirect: "error",
+      }),
+    );
+
+    fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(api.undoMemoryUpdate(memoryReview.updateId)).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenLastCalledWith(
+      `http://localhost:3000/memory/updates/${memoryReview.updateId}/undo`,
+      expect.objectContaining({ method: "POST", body: "{}" }),
+    );
+
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "conflict" }), { status: 409 }),
+    );
+    await expect(api.undoMemoryUpdate(memoryReview.updateId)).rejects.toEqual(
+      new ApiError(409, "API returned status 409"),
+    );
   });
 
   it("saves, reverts and forgets memory with the documented methods and payloads", async () => {

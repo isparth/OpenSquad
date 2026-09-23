@@ -3,6 +3,7 @@ import type {
   ConversationSummary,
   MemoryDocument,
   MemoryDocumentName,
+  MemoryReview,
   MemoryRevision,
   MemoryUpdate,
   MessageContentPart,
@@ -44,6 +45,13 @@ function parseAgent(value: unknown): AgentRecord {
 export interface Health {
   ok: boolean;
   db: string;
+}
+
+export interface MemoryResponse {
+  documents: MemoryDocument[];
+  autoUpdate: boolean;
+  lastUpdate: MemoryUpdate | null;
+  pendingReviewCount: number;
 }
 
 export class ApiError extends Error {
@@ -193,6 +201,68 @@ function parseMemoryUpdate(value: unknown): MemoryUpdate {
   };
 }
 
+function parseMemoryReview(value: unknown): MemoryReview {
+  if (!isRecord(value)) invalidMemory();
+  if (
+    typeof value.updateId !== "string" ||
+    typeof value.agentId !== "string" ||
+    typeof value.agentName !== "string"
+  )
+    invalidMemory();
+  if (value.trigger !== "auto" && value.trigger !== "manual") invalidMemory();
+  if (typeof value.createdAt !== "string") invalidMemory();
+  if (value.finishedAt !== null && typeof value.finishedAt !== "string") invalidMemory();
+  if (!Array.isArray(value.sources)) invalidMemory();
+  const sources = value.sources.map((source) => {
+    if (!isRecord(source)) invalidMemory();
+    if (typeof source.conversationId !== "string" || typeof source.startedAt !== "string")
+      invalidMemory();
+    if (source.title !== null && typeof source.title !== "string") invalidMemory();
+    return {
+      conversationId: source.conversationId,
+      title: source.title,
+      startedAt: source.startedAt,
+    };
+  });
+  if (!Array.isArray(value.changes) || value.changes.length < 1 || value.changes.length > 3)
+    invalidMemory();
+  const changes = value.changes.map((change) => {
+    if (!isRecord(change)) invalidMemory();
+    const name = change.name;
+    if (name !== "profile" && name !== "preferences" && name !== "notes") invalidMemory();
+    if (
+      typeof change.fromVersion !== "number" ||
+      !Number.isInteger(change.fromVersion) ||
+      change.fromVersion < 0 ||
+      typeof change.toVersion !== "number" ||
+      !Number.isInteger(change.toVersion) ||
+      change.toVersion < 1 ||
+      (change.before !== null && typeof change.before !== "string") ||
+      (change.after !== null && typeof change.after !== "string") ||
+      typeof change.current !== "boolean"
+    )
+      invalidMemory();
+    return {
+      name: name as MemoryReview["changes"][number]["name"],
+      fromVersion: change.fromVersion,
+      toVersion: change.toVersion,
+      before: change.before,
+      after: change.after,
+      current: change.current,
+    };
+  });
+  return {
+    updateId: value.updateId,
+    agentId: value.agentId,
+    agentName: value.agentName,
+    trigger: value.trigger,
+    createdAt: value.createdAt,
+    finishedAt: value.finishedAt,
+    sources,
+    changes,
+  };
+}
+
 function parseMemoryRevision(value: unknown): MemoryRevision {
   if (!isRecord(value)) invalidMemory();
   if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1)
@@ -268,19 +338,15 @@ export class ApiClient {
     return parsePage(await this.get<unknown>(path, signal), parseMessage);
   }
 
-  async getMemory(
-    agentId: string,
-    signal?: AbortSignal,
-  ): Promise<{
-    documents: MemoryDocument[];
-    autoUpdate: boolean;
-    lastUpdate: MemoryUpdate | null;
-  }> {
+  async getMemory(agentId: string, signal?: AbortSignal): Promise<MemoryResponse> {
     const value: unknown = await this.get(`/agents/${encodeURIComponent(agentId)}/memory`, signal);
     if (
       !isRecord(value) ||
       !Array.isArray(value.documents) ||
-      typeof value.autoUpdate !== "boolean"
+      typeof value.autoUpdate !== "boolean" ||
+      typeof value.pendingReviewCount !== "number" ||
+      !Number.isInteger(value.pendingReviewCount) ||
+      value.pendingReviewCount < 0
     )
       invalidMemory();
     const lastUpdate = value.lastUpdate === null ? null : parseMemoryUpdate(value.lastUpdate);
@@ -288,7 +354,41 @@ export class ApiClient {
       documents: value.documents.map(parseMemoryDocument),
       autoUpdate: value.autoUpdate,
       lastUpdate,
+      pendingReviewCount: value.pendingReviewCount,
     };
+  }
+
+  async listMemoryReviews(
+    agentId: string,
+    cursor: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ items: MemoryReview[]; nextCursor: string | null }> {
+    const path =
+      `/agents/${encodeURIComponent(agentId)}/memory/reviews?limit=10` +
+      (cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`);
+    const value: unknown = await this.get(path, signal);
+    if (!isRecord(value) || !Array.isArray(value.items)) invalidMemory();
+    if (value.nextCursor !== null && typeof value.nextCursor !== "string") invalidMemory();
+    return {
+      items: value.items.map(parseMemoryReview),
+      nextCursor: value.nextCursor,
+    };
+  }
+
+  async keepMemoryUpdate(updateId: string): Promise<void> {
+    await this.request(`/memory/updates/${encodeURIComponent(updateId)}/keep`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+  }
+
+  async undoMemoryUpdate(updateId: string): Promise<void> {
+    await this.request(`/memory/updates/${encodeURIComponent(updateId)}/undo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
   }
 
   async setMemoryAutoUpdate(autoUpdate: boolean): Promise<boolean> {

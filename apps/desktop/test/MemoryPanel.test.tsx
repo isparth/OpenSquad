@@ -55,11 +55,13 @@ function memoryUpdate(overrides: Partial<MemoryUpdate> = {}): MemoryUpdate {
 let documents: MemoryDocument[];
 let revisions: MemoryRevision[];
 let autoUpdate: boolean;
+let pendingReviewCount: number;
 let lastUpdate: MemoryUpdate | null;
 let nextMemoryResponse: {
   documents: MemoryDocument[];
   autoUpdate: boolean;
   lastUpdate: MemoryUpdate | null;
+  pendingReviewCount: number;
 } | null;
 let memoryReads: number;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -111,6 +113,7 @@ beforeEach(() => {
     { version: 1, author: "extraction", content: "Name: Old", createdAt: updatedAt },
   ];
   autoUpdate = true;
+  pendingReviewCount = 0;
   lastUpdate = null;
   nextMemoryResponse = null;
   memoryReads = 0;
@@ -124,7 +127,7 @@ beforeEach(() => {
     if (method === "GET" && url.pathname === panelUrl.slice("http://localhost:3000".length)) {
       memoryReads++;
       if (memoryReads > 1 && nextMemoryResponse) return response(nextMemoryResponse);
-      return response({ documents, autoUpdate, lastUpdate });
+      return response({ documents, autoUpdate, lastUpdate, pendingReviewCount });
     }
     if (method === "PATCH" && url.pathname === "/memory/settings") {
       autoUpdate = (JSON.parse(String(init?.body)) as { autoUpdate: boolean }).autoUpdate;
@@ -412,6 +415,7 @@ describe("memory panel", () => {
       documents: [document("profile", "- Name: Test", 3, 4000), ...documents.slice(1)],
       autoUpdate: true,
       lastUpdate: finished,
+      pendingReviewCount: 0,
     };
     renderPanel();
     await screen.findByRole("textbox", { name: "About you" });
@@ -463,7 +467,12 @@ describe("memory panel", () => {
     fireEvent.change(editor, { target: { value: "My draft before refresh" } });
     documents = extractedDocuments;
     revisions = extractedRevisions;
-    nextMemoryResponse = { documents: extractedDocuments, autoUpdate: true, lastUpdate: finished };
+    nextMemoryResponse = {
+      documents: extractedDocuments,
+      autoUpdate: true,
+      lastUpdate: finished,
+      pendingReviewCount: 0,
+    };
     const button = screen.getByRole("button", { name: "Update now" });
     await waitFor(() => expect(button).toBeEnabled());
     vi.useFakeTimers();
@@ -511,6 +520,7 @@ describe("memory panel", () => {
         changed: [{ name: "profile", fromVersion: 2, toVersion: 3 }],
         finishedAt: updatedAt,
       }),
+      pendingReviewCount: 0,
     };
     vi.useFakeTimers();
     renderPanel();
