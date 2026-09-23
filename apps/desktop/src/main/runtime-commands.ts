@@ -28,9 +28,11 @@ export const sendMessageCommandSchema = z.strictObject({
 export const runCommandSchema = z.strictObject({ runId: z.uuid() });
 export const refreshMemoryCommandSchema = z.strictObject({ agentId: z.uuid() });
 
+const isoDateTime = z.iso.datetime();
+
 const memoryUpdateSchema = z.strictObject({
-  id: z.string(),
-  agentId: z.string(),
+  id: z.uuid(),
+  agentId: z.uuid(),
   trigger: z.enum(["auto", "manual"]),
   status: z.enum(["running", "succeeded", "failed"]),
   changed: z
@@ -49,13 +51,11 @@ const memoryUpdateSchema = z.strictObject({
       outputTokens: z.number().int().nonnegative(),
     })
     .nullable(),
-  createdAt: z.string(),
-  finishedAt: z.string().nullable(),
+  createdAt: isoDateTime,
+  finishedAt: isoDateTime.nullable(),
 });
 
 const refreshMemoryResultSchema = z.strictObject({ update: memoryUpdateSchema.nullable() });
-
-const isoDateTime = z.iso.datetime();
 
 const runSchema = z.strictObject({
   id: z.uuid(),

@@ -429,16 +429,6 @@ h3 {
   border-radius: 6px;
   background: var(--canvas);
 }
-.memory-auto-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.memory-auto-toggle input {
-  accent-color: var(--accent);
-}
 .memory-auto-description,
 .memory-update-status,
 .memory-key-hint {
@@ -636,19 +626,19 @@ textarea {
   font-size: 12px;
   line-height: 1.6;
 }
-.sandbox-option {
+.switch-option {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.sandbox-option input[type="checkbox"] {
+.switch-option input[type="checkbox"] {
   width: 18px;
   height: 18px;
   margin: 0;
   padding: 0;
   accent-color: var(--accent);
 }
-.sandbox-option label {
+.switch-option label {
   cursor: pointer;
 }
 .form-actions {

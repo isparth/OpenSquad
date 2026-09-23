@@ -344,6 +344,8 @@ describe("response handling", () => {
   });
 
   it.each([
+    { ...memoryUpdate, id: "not-a-uuid" },
+    { ...memoryUpdate, createdAt: "yesterday" },
     { ...memoryUpdate, status: "unknown" },
     { ...memoryUpdate, changed: [{ name: "profile", fromVersion: -1, toVersion: 1 }] },
     {

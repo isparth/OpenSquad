@@ -429,7 +429,7 @@ describe("memory panel", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
     expect(within(updatesRegion()).getByRole("status")).toHaveTextContent(
-      `Updated ${new Date(updatedAt).toLocaleString()}: About you. · 15 tokens`,
+      `Updated ${new Date(updatedAt).toLocaleString()}: About you. 15 tokens used.`,
     );
     expect(screen.getByRole("textbox", { name: "About you" })).toHaveValue("- Name: Test");
   });

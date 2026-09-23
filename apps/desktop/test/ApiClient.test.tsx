@@ -293,6 +293,7 @@ describe("memory client", () => {
           documents: [{ ...memoryDocument, extra: "ignored" }],
           autoUpdate: true,
           lastUpdate: memoryUpdate,
+          reviewList: [],
         }),
       ),
     );
@@ -334,7 +335,6 @@ describe("memory client", () => {
 
   it.each([
     { ...memoryUpdate, status: "queued" },
-    { ...memoryUpdate, extra: true },
     {
       ...memoryUpdate,
       changed: Array.from({ length: 4 }, () => ({ name: "notes", fromVersion: 0, toVersion: 1 })),
@@ -349,9 +349,35 @@ describe("memory client", () => {
     await expect(api.getMemory("agent-1")).rejects.toThrow("Invalid memory response");
   });
 
+  it("ignores additive fields in update records and their containers", async () => {
+    const futureUpdate = {
+      ...memoryUpdate,
+      reviewList: [],
+      changed: [{ ...memoryUpdate.changed[0], reviewedAt: memoryUpdate.createdAt }],
+      usage: { ...memoryUpdate.usage, cachedTokens: 2 },
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          documents: [],
+          autoUpdate: true,
+          lastUpdate: futureUpdate,
+          reviewList: [],
+        }),
+      ),
+    );
+    expect(await api.getMemory("agent-1")).toEqual({
+      documents: [],
+      autoUpdate: true,
+      lastUpdate: memoryUpdate,
+    });
+  });
+
   it("updates the owner-wide auto-update setting", async () => {
     const fetchMock = vi.mocked(fetch);
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ autoUpdate: false })));
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ autoUpdate: false, futureField: true })),
+    );
     await expect(api.setMemoryAutoUpdate(false)).resolves.toBe(false);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:3000/memory/settings",

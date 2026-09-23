@@ -63,12 +63,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
-  return (
-    Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
-  );
-}
-
 function parseConversationSummary(value: unknown): ConversationSummary {
   if (!isRecord(value)) invalid();
   if (typeof value.id !== "string" || typeof value.createdAt !== "string") invalid();
@@ -137,29 +131,14 @@ function parseMemoryDocument(value: unknown): MemoryDocument {
 }
 
 function parseMemoryUpdate(value: unknown): MemoryUpdate {
-  if (
-    !isRecord(value) ||
-    !hasExactKeys(value, [
-      "id",
-      "agentId",
-      "trigger",
-      "status",
-      "changed",
-      "errorCode",
-      "usage",
-      "createdAt",
-      "finishedAt",
-    ])
-  )
-    invalidMemory();
+  if (!isRecord(value)) invalidMemory();
   if (typeof value.id !== "string" || typeof value.agentId !== "string") invalidMemory();
   if (value.trigger !== "auto" && value.trigger !== "manual") invalidMemory();
   if (value.status !== "running" && value.status !== "succeeded" && value.status !== "failed")
     invalidMemory();
   if (!Array.isArray(value.changed) || value.changed.length > 3) invalidMemory();
   const changed = value.changed.map((item) => {
-    if (!isRecord(item) || !hasExactKeys(item, ["name", "fromVersion", "toVersion"]))
-      invalidMemory();
+    if (!isRecord(item)) invalidMemory();
     const name = item.name;
     const fromVersion = item.fromVersion;
     const toVersion = item.toVersion;
@@ -186,7 +165,6 @@ function parseMemoryUpdate(value: unknown): MemoryUpdate {
   } else {
     if (
       !isRecord(value.usage) ||
-      !hasExactKeys(value.usage, ["inputTokens", "outputTokens"]) ||
       typeof value.usage.inputTokens !== "number" ||
       !Number.isInteger(value.usage.inputTokens) ||
       value.usage.inputTokens < 0 ||
@@ -301,7 +279,6 @@ export class ApiClient {
     const value: unknown = await this.get(`/agents/${encodeURIComponent(agentId)}/memory`, signal);
     if (
       !isRecord(value) ||
-      !hasExactKeys(value, ["documents", "autoUpdate", "lastUpdate"]) ||
       !Array.isArray(value.documents) ||
       typeof value.autoUpdate !== "boolean"
     )
@@ -321,12 +298,7 @@ export class ApiClient {
       body: JSON.stringify({ autoUpdate }),
     });
     const value: unknown = await response.json();
-    if (
-      !isRecord(value) ||
-      !hasExactKeys(value, ["autoUpdate"]) ||
-      typeof value.autoUpdate !== "boolean"
-    )
-      invalidMemory();
+    if (!isRecord(value) || typeof value.autoUpdate !== "boolean") invalidMemory();
     return value.autoUpdate;
   }
 

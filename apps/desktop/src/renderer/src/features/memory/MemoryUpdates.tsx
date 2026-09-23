@@ -1,5 +1,5 @@
 import type { MemoryDocument, MemoryDocumentName, MemoryUpdate } from "@opensquad/core";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { getApiClient } from "@/lib/api/client.js";
 import { useRuntimeKey } from "../runtime-key/RuntimeKeyContext.js";
 
@@ -14,7 +14,7 @@ function updateStatus(update: MemoryUpdate | null): string {
   if (!update) return "No updates yet.";
   const time = new Date(update.createdAt).toLocaleString();
   const tokens = update.usage
-    ? ` · ${update.usage.inputTokens + update.usage.outputTokens} tokens`
+    ? ` ${update.usage.inputTokens + update.usage.outputTokens} tokens used.`
     : "";
   let message: string;
   if (update.status === "running") {
@@ -48,6 +48,9 @@ export function MemoryUpdates({
   onFinished: (documents: MemoryDocument[]) => void;
 }) {
   const { status: runtimeKeyStatus } = useRuntimeKey();
+  const id = useId();
+  const autoUpdateId = `${id}-auto-update`;
+  const autoUpdateDescriptionId = `${id}-auto-update-description`;
   const keyConfigured = runtimeKeyStatus?.state === "configured";
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(autoUpdate);
   const [latestUpdate, setLatestUpdate] = useState(lastUpdate);
@@ -144,19 +147,20 @@ export function MemoryUpdates({
 
   return (
     <section className="memory-updates" aria-label="Automatic memory updates">
-      <label className="memory-auto-toggle">
+      <div className="switch-option">
         <input
+          id={autoUpdateId}
           type="checkbox"
           role="switch"
           aria-checked={autoUpdateEnabled}
           checked={autoUpdateEnabled}
           disabled={disabled || settingsBusy}
-          aria-describedby="memory-auto-update-description"
+          aria-describedby={autoUpdateDescriptionId}
           onChange={(event) => void changeAutoUpdate(event.currentTarget.checked)}
         />
-        <span>Update memory automatically</span>
-      </label>
-      <p id="memory-auto-update-description" className="muted memory-auto-description">
+        <label htmlFor={autoUpdateId}>Update memory automatically</label>
+      </div>
+      <p id={autoUpdateDescriptionId} className="muted memory-auto-description">
         When you start a new conversation, this bot reads your earlier conversations with it and
         updates memory. Each update makes one model call on your OpenAI key. This setting applies to
         all your bots.
