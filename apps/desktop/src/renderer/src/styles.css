@@ -415,6 +415,113 @@ h3 {
   overflow-y: auto;
   font-size: 13px;
 }
+.memory-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.memory-intro,
+.memory-scope {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.memory-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.memory-tab {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 550;
+}
+.memory-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 650;
+}
+.memory-tabpanel {
+  min-width: 0;
+}
+.memory-scope {
+  margin: 12px 0;
+}
+.memory-counter {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.memory-counter.over {
+  color: var(--danger);
+}
+.memory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.memory-saved {
+  color: var(--accent);
+  font-size: 12px;
+}
+.memory-mutation-error {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.memory-mutation-error p {
+  flex: 1 1 280px;
+}
+.memory-history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--canvas);
+}
+.memory-revision {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.memory-revision:last-of-type {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.memory-revision-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.memory-revision-heading > span {
+  flex: 1 1 260px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.memory-revision-content {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.memory-forget {
+  align-self: flex-start;
+}
 .detail-footer {
   display: flex;
   align-items: center;
@@ -483,6 +590,11 @@ textarea {
 }
 .instructions-input {
   min-height: 160px;
+}
+.memory-panel textarea {
+  width: 100%;
+  min-height: 10rem;
+  font: inherit;
 }
 .field-hint {
   color: var(--muted);
