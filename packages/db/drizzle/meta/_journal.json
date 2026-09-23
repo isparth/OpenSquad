@@ -29,6 +29,13 @@
       "when": 1790150640556,
       "tag": "0003_confused_wiccan",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790161838260,
+      "tag": "0004_previous_shaman",
+      "breakpoints": true
     }
   ]
 }
