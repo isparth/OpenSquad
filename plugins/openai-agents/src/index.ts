@@ -28,6 +28,7 @@ const sessionOptionsSchema = z
     model: z.string().trim().min(1).optional(),
     environment: z.enum(["hosted", "none"]).optional(),
     input: z.string().optional(),
+    outputSchema: z.record(z.string(), z.unknown()).optional(),
     maxConcurrentSubagents: z.number().int().min(1).max(16).optional(),
     mcpServers: z
       .array(
@@ -77,6 +78,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
   readonly features = Object.freeze({
     hostedEnvironment: true,
     environmentless: true,
+    structuredOutput: true,
     mcp: true,
     subagents: true,
     steering: true,
@@ -176,6 +178,9 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
         agent: {
           model: config.model ?? this.#defaultModel,
           instructions: config.instructions,
+          ...(config.outputSchema === undefined
+            ? {}
+            : { text: { format: { type: "json_schema", schema: config.outputSchema } } }),
           ...(config.maxConcurrentSubagents === undefined
             ? {}
             : {

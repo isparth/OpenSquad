@@ -79,6 +79,7 @@ describe("OpenAIAgentsProvider", () => {
   it("creates an idle hosted session without starting work or storing the caller's key", async () => {
     const { runtime, fetch } = setup();
     expect(runtime.features.environmentless).toBe(true);
+    expect(runtime.features.structuredOutput).toBe(true);
     fetch.mockResolvedValue(json(remoteSession));
     expect(await runtime.createSession({ instructions: "Be helpful" }, credentials)).toEqual({
       ...session,
@@ -95,6 +96,7 @@ describe("OpenAIAgentsProvider", () => {
       agent: { model: "gpt-6-luna", instructions: "Be helpful" },
       environment: { type: "openai_hosted" },
     });
+    expect(JSON.parse(String(init?.body)).agent).not.toHaveProperty("text");
     expect(JSON.stringify(runtime)).not.toContain(credentials.apiKey);
   });
 
@@ -112,6 +114,26 @@ describe("OpenAIAgentsProvider", () => {
       agent: { model: "gpt-6-luna", instructions: "Be helpful" },
       environment: { type: "none" },
       input: [{ role: "user", content: [{ type: "input_text", text: "  Hi\n" }] }],
+    });
+  });
+
+  it("sends the exact JSON schema format when structured output is requested", async () => {
+    const { runtime, fetch } = setup();
+    const outputSchema = {
+      type: "object",
+      properties: { profile: { type: ["string", "null"] } },
+      required: ["profile"],
+      additionalProperties: false,
+    };
+    fetch.mockResolvedValue(json(remoteSession));
+    await runtime.createSession({ instructions: "Return JSON", outputSchema }, credentials);
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      agent: {
+        model: "gpt-6-luna",
+        instructions: "Return JSON",
+        text: { format: { type: "json_schema", schema: outputSchema } },
+      },
+      environment: { type: "openai_hosted" },
     });
   });
 
