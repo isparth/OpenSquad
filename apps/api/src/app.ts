@@ -17,9 +17,11 @@ import memoryRoutes from "./modules/memory/routes.js";
 import capabilities from "./plugins/capabilities.js";
 import db from "./plugins/db.js";
 import envPlugin from "./plugins/env.js";
+import memoryUpdates from "./plugins/memory-updates.js";
 
 export interface BuildAppOptions {
   capabilities?: Partial<Capabilities>;
+  memoryUpdates?: { autoTrigger?: boolean; turnDeadlineMs?: number; pollIntervalMs?: number };
 }
 
 export async function buildApp(env: Env, options: BuildAppOptions = {}) {
@@ -48,6 +50,7 @@ export async function buildApp(env: Env, options: BuildAppOptions = {}) {
   await app.register(cors, { origin: true, methods: ["GET", "HEAD", "POST", "PATCH", "DELETE"] });
   await app.register(db);
   await app.register(capabilities, { overrides: options.capabilities ?? {} });
+  await app.register(memoryUpdates, options.memoryUpdates ?? {});
   await app.register(auth);
 
   await app.register(healthRoutes);

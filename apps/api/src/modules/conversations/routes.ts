@@ -2,6 +2,7 @@ import { STATUS_CODES } from "node:http";
 import type { FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { readRuntimeKey } from "../../auth/runtime-key.js";
 import { runAdmission } from "./admission.js";
 import { runCoordinator } from "./coordinator.js";
 import { ConversationError, runDto } from "./dto.js";
@@ -38,10 +39,10 @@ const createBody = z.strictObject({
 });
 
 function credentials(request: FastifyRequest) {
-  const key = request.headers["x-opensquad-runtime-key"];
-  if (typeof key !== "string" || !key.trim() || key.length > 4096 || key.includes(","))
+  const value = readRuntimeKey(request);
+  if (!value)
     throw new ConversationError(400, "Provide one runtime key in X-OpenSquad-Runtime-Key");
-  return { apiKey: key.trim() };
+  return value;
 }
 
 const routes: FastifyPluginAsyncZod = async (app) => {
@@ -135,9 +136,13 @@ const routes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const key = credentials(request);
-      const result = await admit(request.userId as string, request.params.id, request.body);
-      if (result.fresh)
-        await coordinator.start(request.userId as string, result.run.id, key, "execute");
+      const ownerId = request.userId as string;
+      const result = await admit(ownerId, request.params.id, request.body);
+      if (result.fresh) {
+        await coordinator.start(ownerId, result.run.id, key, "execute");
+        if (result.sessionCreated && result.agentId)
+          app.memoryUpdates.schedule(ownerId, result.agentId, request.params.id, key);
+      }
       return reply.code(202).send({ message: result.message, run: result.run });
     },
   );

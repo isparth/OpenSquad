@@ -3,15 +3,20 @@ import type {
   MemoryDocumentName,
   MemoryRevision,
   MemoryRevisionAuthor,
+  MemoryUpdate,
 } from "@opensquad/core";
 import {
   agents,
+  conversations,
   type Database,
   memoryDocuments,
   memoryRevisions,
   memorySettings,
+  memorySources,
+  memoryUpdates,
+  participants,
 } from "@opensquad/db";
-import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { Transaction } from "../conversations/persistence.js";
 import { renderMemory } from "./render.js";
 
@@ -44,6 +49,95 @@ function documentDto(
     limit: documentLimits[name],
     updatedAt: row?.updatedAt.toISOString() ?? null,
   };
+}
+
+export function memoryUpdateDto(row: typeof memoryUpdates.$inferSelect): MemoryUpdate {
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    trigger: row.trigger,
+    status: row.status,
+    changed: row.changed,
+    errorCode: row.errorCode,
+    usage: row.usage,
+    createdAt: row.createdAt.toISOString(),
+    finishedAt: row.finishedAt?.toISOString() ?? null,
+  };
+}
+
+export async function lockMemoryOwner(tx: Transaction, ownerId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`memory:${ownerId}`}, 0))`);
+}
+
+export async function sweepExpiredMemoryUpdates(tx: Transaction, ownerId: string): Promise<void> {
+  await tx
+    .update(memoryUpdates)
+    .set({ status: "failed", errorCode: "worker_lost", finishedAt: sql`clock_timestamp()` })
+    .where(
+      and(
+        eq(memoryUpdates.ownerId, ownerId),
+        eq(memoryUpdates.status, "running"),
+        lte(memoryUpdates.leaseExpiresAt, sql`clock_timestamp()`),
+      ),
+    );
+}
+
+export async function writeDocument(
+  tx: Transaction,
+  input: {
+    ownerId: string;
+    agentId: string;
+    name: MemoryDocumentName;
+    content: string;
+    expectedVersion: number;
+    author: MemoryRevisionAuthor;
+    updateId: string | null;
+  },
+): Promise<MemoryDocument> {
+  const [current] = await tx
+    .select()
+    .from(memoryDocuments)
+    .where(scopedDocument(input.ownerId, input.agentId, input.name))
+    .limit(1);
+  const currentVersion = current?.version ?? 0;
+  if (currentVersion !== input.expectedVersion)
+    throw new MemoryError(409, "Memory changed since it was loaded");
+
+  const version = currentVersion + 1;
+  const [row] = current
+    ? await tx
+        .update(memoryDocuments)
+        .set({ content: input.content, version, updatedAt: sql`clock_timestamp()` })
+        .where(eq(memoryDocuments.id, current.id))
+        .returning()
+    : await tx
+        .insert(memoryDocuments)
+        .values({
+          ownerId: input.ownerId,
+          agentId: input.name === "notes" ? input.agentId : null,
+          name: input.name,
+          content: input.content,
+          version,
+        })
+        .returning();
+  if (!row) throw new Error("Memory document write returned no row");
+
+  await tx.insert(memoryRevisions).values({
+    documentId: row.id,
+    updateId: input.updateId,
+    version,
+    content: input.content,
+    author: input.author,
+  });
+  await tx
+    .delete(memoryRevisions)
+    .where(
+      and(
+        eq(memoryRevisions.documentId, row.id),
+        lt(memoryRevisions.version, version - revisionsPerDocument + 1),
+      ),
+    );
+  return documentDto(input.name, row);
 }
 
 function scopedDocument(ownerId: string, agentId: string, name: MemoryDocumentName) {
@@ -86,7 +180,7 @@ export async function memorySnapshot(
   );
 }
 
-async function assertAgent(
+export async function assertAgent(
   executor: Database | Transaction,
   ownerId: string,
   agentId: string,
@@ -109,61 +203,60 @@ export function memoryService(db: Database) {
     author: MemoryRevisionAuthor = "user",
   ): Promise<MemoryDocument> =>
     db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`memory:${ownerId}`}, 0))`,
-      );
+      await lockMemoryOwner(tx, ownerId);
       await assertAgent(tx, ownerId, agentId, true);
       if (content.length > documentLimits[name])
         throw new MemoryError(400, "Memory document is too long");
       if (content.includes("\u0000"))
         throw new MemoryError(400, "Memory document contains invalid characters");
 
-      const [current] = await tx
-        .select()
-        .from(memoryDocuments)
-        .where(scopedDocument(ownerId, agentId, name))
-        .limit(1);
-      const currentVersion = current?.version ?? 0;
-      if (currentVersion !== expectedVersion)
-        throw new MemoryError(409, "Memory changed since it was loaded");
-
-      const version = currentVersion + 1;
-      const [row] = current
-        ? await tx
-            .update(memoryDocuments)
-            .set({ content, version, updatedAt: sql`clock_timestamp()` })
-            .where(eq(memoryDocuments.id, current.id))
-            .returning()
-        : await tx
-            .insert(memoryDocuments)
-            .values({
-              ownerId,
-              agentId: name === "notes" ? agentId : null,
-              name,
-              content,
-              version,
-            })
-            .returning();
-      if (!row) throw new Error("Memory document write returned no row");
-
-      await tx.insert(memoryRevisions).values({
-        documentId: row.id,
-        version,
+      return writeDocument(tx, {
+        ownerId,
+        agentId,
+        name,
         content,
+        expectedVersion,
         author,
+        updateId: null,
       });
-      await tx
-        .delete(memoryRevisions)
-        .where(
-          and(
-            eq(memoryRevisions.documentId, row.id),
-            lt(memoryRevisions.version, version - revisionsPerDocument + 1),
-          ),
-        );
-      return documentDto(name, row);
     });
 
   return {
+    status: async (ownerId: string, agentId: string) =>
+      db.transaction(async (tx) => {
+        await lockMemoryOwner(tx, ownerId);
+        await sweepExpiredMemoryUpdates(tx, ownerId);
+        await assertAgent(tx, ownerId, agentId);
+        const [setting] = await tx
+          .select({ autoUpdate: memorySettings.autoUpdate })
+          .from(memorySettings)
+          .where(eq(memorySettings.ownerId, ownerId));
+        const [latest] = await tx
+          .select()
+          .from(memoryUpdates)
+          .where(and(eq(memoryUpdates.ownerId, ownerId), eq(memoryUpdates.agentId, agentId)))
+          .orderBy(desc(memoryUpdates.createdAt))
+          .limit(1);
+        return {
+          autoUpdate: setting?.autoUpdate ?? true,
+          lastUpdate: latest ? memoryUpdateDto(latest) : null,
+        };
+      }),
+
+    setAutoUpdate: async (ownerId: string, autoUpdate: boolean): Promise<boolean> =>
+      db.transaction(async (tx) => {
+        await lockMemoryOwner(tx, ownerId);
+        const [row] = await tx
+          .insert(memorySettings)
+          .values({ ownerId, autoUpdate })
+          .onConflictDoUpdate({
+            target: memorySettings.ownerId,
+            set: { autoUpdate, updatedAt: sql`clock_timestamp()` },
+          })
+          .returning({ autoUpdate: memorySettings.autoUpdate });
+        return row?.autoUpdate ?? autoUpdate;
+      }),
+
     list: async (ownerId: string, agentId: string): Promise<MemoryDocument[]> => {
       await assertAgent(db, ownerId, agentId);
       const rows = await db
@@ -241,10 +334,45 @@ export function memoryService(db: Database) {
 
     forget: (ownerId: string) =>
       db.transaction(async (tx) => {
-        await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${`memory:${ownerId}`}, 0))`,
-        );
+        await lockMemoryOwner(tx, ownerId);
         await tx.delete(memoryDocuments).where(eq(memoryDocuments.ownerId, ownerId));
+        await tx.delete(memoryUpdates).where(eq(memoryUpdates.ownerId, ownerId));
+        const sources = await tx
+          .select({
+            conversationId: conversations.id,
+            agentId: participants.agentId,
+            sequence: conversations.messageSequence,
+          })
+          .from(conversations)
+          .innerJoin(
+            participants,
+            and(
+              eq(participants.conversationId, conversations.id),
+              eq(participants.kind, "agent"),
+              isNotNull(participants.agentId),
+            ),
+          )
+          .where(eq(conversations.ownerId, ownerId));
+        for (const source of sources) {
+          if (!source.agentId) continue;
+          await tx
+            .insert(memorySources)
+            .values({
+              conversationId: source.conversationId,
+              ownerId,
+              agentId: source.agentId,
+              processedThroughSequence: source.sequence,
+            })
+            .onConflictDoUpdate({
+              target: memorySources.conversationId,
+              set: {
+                ownerId,
+                agentId: source.agentId,
+                processedThroughSequence: source.sequence,
+                updatedAt: sql`clock_timestamp()`,
+              },
+            });
+        }
       }),
   };
 }

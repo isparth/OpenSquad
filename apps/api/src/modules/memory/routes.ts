@@ -2,6 +2,7 @@ import { STATUS_CODES } from "node:http";
 import type { FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { readRuntimeKey } from "../../auth/runtime-key.js";
 import { MemoryError, memoryService } from "./service.js";
 
 const idParams = z.object({ id: z.uuid() });
@@ -55,9 +56,38 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   });
   const service = memoryService(app.db);
 
-  app.get("/agents/:id/memory", { schema: { params: idParams } }, async (request) => ({
-    documents: await service.list(request.userId as string, request.params.id),
-  }));
+  app.get("/agents/:id/memory", { schema: { params: idParams } }, async (request) => {
+    const ownerId = request.userId as string;
+    const [documents, status] = await Promise.all([
+      service.list(ownerId, request.params.id),
+      service.status(ownerId, request.params.id),
+    ]);
+    return { documents, ...status };
+  });
+
+  app.post(
+    "/agents/:id/memory/refresh",
+    { schema: { params: idParams, body: z.strictObject({}).nullish() } },
+    async (request, reply) => {
+      const credentials = readRuntimeKey(request);
+      if (!credentials)
+        throw new MemoryError(400, "Provide one runtime key in X-OpenSquad-Runtime-Key");
+      const result = await app.memoryUpdates.refresh(
+        request.userId as string,
+        request.params.id,
+        credentials,
+      );
+      return reply.code(result.started ? 202 : 200).send({ update: result.update });
+    },
+  );
+
+  app.patch(
+    "/memory/settings",
+    { schema: { body: z.strictObject({ autoUpdate: z.boolean() }) } },
+    async (request) => ({
+      autoUpdate: await service.setAutoUpdate(request.userId as string, request.body.autoUpdate),
+    }),
+  );
 
   app.patch(
     "/agents/:id/memory/:name",
