@@ -14,7 +14,7 @@ import {
   participants,
   runtimeSessions,
 } from "@opensquad/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { App } from "../src/app.js";
 import { agentsService } from "../src/modules/agents/service.js";
@@ -42,6 +42,7 @@ const transcriptMessage = (text: string) => [
 ];
 
 interface UpdateSeed {
+  id?: string;
   ownerId?: string;
   agentId?: string;
   trigger?: "auto" | "manual";
@@ -101,6 +102,7 @@ describe("memory review API", () => {
     const [row] = await app.db
       .insert(memoryUpdates)
       .values({
+        ...(options.id ? { id: options.id } : {}),
         ownerId: options.ownerId ?? ownerId,
         agentId: options.agentId ?? agentId,
         trigger: options.trigger ?? "auto",
@@ -479,6 +481,41 @@ describe("memory review API", () => {
     );
     expect((await listReviews(agentId, 10, "not-a-cursor")).statusCode).toBe(400);
     expect((await listReviews(foreignBotId)).statusCode).toBe(404);
+  });
+
+  it("paginates rows created in the same millisecond using the ID tie-breaker", async () => {
+    const laterId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const earlierId = "00000000-0000-4000-8000-000000000000";
+    const createdAt = new Date("2026-09-20T10:00:00.123Z");
+    const later = await seedUpdate({
+      id: laterId,
+      createdAt,
+      changed: [{ name: "profile", fromVersion: 0, toVersion: 1 }],
+    });
+    const earlier = await seedUpdate({
+      id: earlierId,
+      createdAt,
+      changed: [{ name: "profile", fromVersion: 0, toVersion: 1 }],
+    });
+    await app.db.execute(
+      sql`update memory_updates set created_at = '2026-09-20 10:00:00.123456+00'::timestamptz where id = ${later.id}::uuid`,
+    );
+    await app.db.execute(
+      sql`update memory_updates set created_at = '2026-09-20 10:00:00.123400+00'::timestamptz where id = ${earlier.id}::uuid`,
+    );
+
+    const firstPage = await listReviews(agentId, 1);
+    expect(firstPage.statusCode).toBe(200);
+    expect(firstPage.json().items.map((item: { updateId: string }) => item.updateId)).toEqual([
+      later.id,
+    ]);
+    expect(firstPage.json().nextCursor).toEqual(expect.any(String));
+    const secondPage = await listReviews(agentId, 1, firstPage.json().nextCursor);
+    expect(secondPage.statusCode).toBe(200);
+    expect(secondPage.json().items.map((item: { updateId: string }) => item.updateId)).toEqual([
+      earlier.id,
+    ]);
+    expect(secondPage.json().nextCursor).toBeNull();
   });
 
   it("marks changes non-current and returns null for pruned revisions", async () => {

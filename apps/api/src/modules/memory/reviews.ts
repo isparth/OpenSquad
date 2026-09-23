@@ -90,13 +90,18 @@ export async function listMemoryReviews(
   limit: number,
   cursor?: string,
 ): Promise<{ items: MemoryReview[]; nextCursor: string | null }> {
+  const createdAtMs = sql`date_trunc('milliseconds', ${memoryUpdates.createdAt})`;
   const conditions = [reviewableUpdates(ownerId, agentId)];
   if (cursor) {
     const position = parseCursor(cursor);
+    const cursorCreatedAt = position.createdAt.toISOString();
     conditions.push(
       or(
-        lt(memoryUpdates.createdAt, position.createdAt),
-        and(eq(memoryUpdates.createdAt, position.createdAt), lt(memoryUpdates.id, position.id)),
+        sql`${createdAtMs} < ${cursorCreatedAt}::timestamptz`,
+        and(
+          sql`${createdAtMs} = ${cursorCreatedAt}::timestamptz`,
+          lt(memoryUpdates.id, position.id),
+        ),
       ),
     );
   }
@@ -104,7 +109,7 @@ export async function listMemoryReviews(
     .select()
     .from(memoryUpdates)
     .where(and(...conditions))
-    .orderBy(desc(memoryUpdates.createdAt), desc(memoryUpdates.id))
+    .orderBy(desc(createdAtMs), desc(memoryUpdates.id))
     .limit(limit + 1);
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
