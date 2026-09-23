@@ -246,6 +246,81 @@ describe("runtime HTTP execution", () => {
     expect(runtime.createSession).toHaveBeenCalledOnce();
   });
 
+  it("dispatches cancellation after an environmentless create when subscription fails", async () => {
+    runtime.createSession.mockImplementation(async () => {
+      await app.db
+        .update(conversationRuns)
+        .set({ cancelRequested: true })
+        .where(eq(conversationRuns.conversationId, conversationId));
+      return session;
+    });
+    runtime.events.mockRejectedValue(new Error("private subscription detail"));
+    runtime.cancel.mockResolvedValue(undefined);
+
+    const response = await send();
+    expect(response.statusCode).toBe(202);
+    const id = response.json().run.id;
+    await vi.waitFor(async () => {
+      const [row] = await app.db
+        .select()
+        .from(conversationRuns)
+        .where(eq(conversationRuns.id, id));
+      expect(row?.observation).toBe("reconciliation_required");
+      expect(row?.cancelDispatched).toBe(true);
+      expect(row?.active).toBe(true);
+      expect(row?.status).not.toBe("failed");
+    });
+    expect(runtime.cancel).toHaveBeenCalledOnce();
+    expect(runtime.cancel.mock.calls[0]?.[0]).toEqual({
+      provider: session.provider,
+      externalId: session.externalId,
+    });
+    expect(runtime.cancel.mock.calls[0]?.[1]).toEqual({ apiKey: "dummy-user-key" });
+    expect(runtime.sendInput).not.toHaveBeenCalled();
+  });
+
+  it("recovers an environmentless run from saved messages and turns without resending input", async () => {
+    runtime.events.mockImplementationOnce(async () => {
+      queue.fail(new Error("Disconnect"));
+      return queue;
+    });
+    const response = await send();
+    expect(response.statusCode).toBe(202);
+    const id = response.json().run.id;
+    await vi.waitFor(async () => {
+      const [row] = await app.db
+        .select()
+        .from(conversationRuns)
+        .where(eq(conversationRuns.id, id));
+      expect(row?.active).toBe(true);
+      expect(row?.observation).toBe("reconciliation_required");
+    });
+
+    runtime.events.mockResolvedValueOnce(new RuntimeQueue());
+    runtime.listTurns.mockImplementation(async function* () {
+      yield root("succeeded");
+    });
+    runtime.listMessages.mockImplementation(async function* () {
+      yield savedMessage("user", "saved-user", "Hello");
+      yield savedMessage("assistant", "saved-assistant", "Recovered environmentless reply");
+    });
+    const reconcile = await app.inject({
+      method: "POST",
+      url: `/runs/${id}/reconcile`,
+      headers,
+    });
+    expect(reconcile.statusCode).toBe(202);
+    await waitStatus(id, "succeeded");
+    const history = (
+      await app.inject({ method: "GET", url: `/conversations/${conversationId}/messages` })
+    ).json().items;
+    expect(
+      history.map((message: { content: Array<{ text: string }> }) => message.content[0]?.text),
+    ).toEqual(["Hello", "Recovered environmentless reply"]);
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect(runtime.sendInput).not.toHaveBeenCalled();
+  });
+
   it("creates hosted sessions without initial input and sends after subscribing", async () => {
     await setSandboxEnabled(true);
     runtime.sendInput.mockImplementation(async () => {
