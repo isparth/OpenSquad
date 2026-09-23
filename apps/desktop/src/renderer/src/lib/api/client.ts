@@ -4,6 +4,7 @@ import type {
   MemoryDocument,
   MemoryDocumentName,
   MemoryRevision,
+  MemoryUpdate,
   MessageContentPart,
 } from "@opensquad/core";
 
@@ -129,6 +130,69 @@ function parseMemoryDocument(value: unknown): MemoryDocument {
   };
 }
 
+function parseMemoryUpdate(value: unknown): MemoryUpdate {
+  if (!isRecord(value)) invalidMemory();
+  if (typeof value.id !== "string" || typeof value.agentId !== "string") invalidMemory();
+  if (value.trigger !== "auto" && value.trigger !== "manual") invalidMemory();
+  if (value.status !== "running" && value.status !== "succeeded" && value.status !== "failed")
+    invalidMemory();
+  if (!Array.isArray(value.changed) || value.changed.length > 3) invalidMemory();
+  const changed = value.changed.map((item) => {
+    if (!isRecord(item)) invalidMemory();
+    const name = item.name;
+    const fromVersion = item.fromVersion;
+    const toVersion = item.toVersion;
+    if (name !== "profile" && name !== "preferences" && name !== "notes") invalidMemory();
+    if (
+      typeof fromVersion !== "number" ||
+      !Number.isInteger(fromVersion) ||
+      fromVersion < 0 ||
+      typeof toVersion !== "number" ||
+      !Number.isInteger(toVersion) ||
+      toVersion < 1
+    )
+      invalidMemory();
+    return {
+      name: name as MemoryUpdate["changed"][number]["name"],
+      fromVersion: fromVersion as number,
+      toVersion: toVersion as number,
+    };
+  });
+  if (value.errorCode !== null && typeof value.errorCode !== "string") invalidMemory();
+  let usage: MemoryUpdate["usage"];
+  if (value.usage === null) {
+    usage = null;
+  } else {
+    if (
+      !isRecord(value.usage) ||
+      typeof value.usage.inputTokens !== "number" ||
+      !Number.isInteger(value.usage.inputTokens) ||
+      value.usage.inputTokens < 0 ||
+      typeof value.usage.outputTokens !== "number" ||
+      !Number.isInteger(value.usage.outputTokens) ||
+      value.usage.outputTokens < 0
+    )
+      invalidMemory();
+    usage = {
+      inputTokens: value.usage.inputTokens,
+      outputTokens: value.usage.outputTokens,
+    };
+  }
+  if (typeof value.createdAt !== "string") invalidMemory();
+  if (value.finishedAt !== null && typeof value.finishedAt !== "string") invalidMemory();
+  return {
+    id: value.id,
+    agentId: value.agentId,
+    trigger: value.trigger,
+    status: value.status,
+    changed,
+    errorCode: value.errorCode,
+    usage,
+    createdAt: value.createdAt,
+    finishedAt: value.finishedAt,
+  };
+}
+
 function parseMemoryRevision(value: unknown): MemoryRevision {
   if (!isRecord(value)) invalidMemory();
   if (typeof value.version !== "number" || !Number.isInteger(value.version) || value.version < 1)
@@ -204,10 +268,38 @@ export class ApiClient {
     return parsePage(await this.get<unknown>(path, signal), parseMessage);
   }
 
-  async getMemory(agentId: string, signal?: AbortSignal): Promise<MemoryDocument[]> {
+  async getMemory(
+    agentId: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    documents: MemoryDocument[];
+    autoUpdate: boolean;
+    lastUpdate: MemoryUpdate | null;
+  }> {
     const value: unknown = await this.get(`/agents/${encodeURIComponent(agentId)}/memory`, signal);
-    if (!isRecord(value) || !Array.isArray(value.documents)) invalidMemory();
-    return value.documents.map(parseMemoryDocument);
+    if (
+      !isRecord(value) ||
+      !Array.isArray(value.documents) ||
+      typeof value.autoUpdate !== "boolean"
+    )
+      invalidMemory();
+    const lastUpdate = value.lastUpdate === null ? null : parseMemoryUpdate(value.lastUpdate);
+    return {
+      documents: value.documents.map(parseMemoryDocument),
+      autoUpdate: value.autoUpdate,
+      lastUpdate,
+    };
+  }
+
+  async setMemoryAutoUpdate(autoUpdate: boolean): Promise<boolean> {
+    const response = await this.request("/memory/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoUpdate }),
+    });
+    const value: unknown = await response.json();
+    if (!isRecord(value) || typeof value.autoUpdate !== "boolean") invalidMemory();
+    return value.autoUpdate;
   }
 
   async saveMemory(

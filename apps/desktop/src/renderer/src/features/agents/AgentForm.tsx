@@ -115,7 +115,7 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
           />
         </div>
         <div className="field sandbox-field">
-          <div className="sandbox-option">
+          <div className="switch-option">
             <input
               id={`${id}-sandbox`}
               type="checkbox"

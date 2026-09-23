@@ -420,6 +420,31 @@ h3 {
   flex-direction: column;
   gap: 14px;
 }
+.memory-updates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--canvas);
+}
+.memory-auto-description,
+.memory-update-status,
+.memory-key-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.memory-update-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.memory-update-error {
+  margin: 0;
+}
 .memory-intro,
 .memory-scope {
   font-size: 12px;
@@ -601,19 +626,19 @@ textarea {
   font-size: 12px;
   line-height: 1.6;
 }
-.sandbox-option {
+.switch-option {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.sandbox-option input[type="checkbox"] {
+.switch-option input[type="checkbox"] {
   width: 18px;
   height: 18px;
   margin: 0;
   padding: 0;
   accent-color: var(--accent);
 }
-.sandbox-option label {
+.switch-option label {
   cursor: pointer;
 }
 .form-actions {

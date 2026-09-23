@@ -2,7 +2,7 @@
  * The contract between renderer and main. Both sides import from here so a
  * renamed channel or changed payload fails typecheck instead of failing at runtime.
  */
-import type { ConversationMessage, ConversationRun } from "@opensquad/core";
+import type { ConversationMessage, ConversationRun, MemoryUpdate } from "@opensquad/core";
 
 export const IPC = {
   getAppInfo: "app:get-info",
@@ -13,6 +13,7 @@ export const IPC = {
   sendMessage: "runtime:send-message",
   cancelRun: "runtime:cancel-run",
   reconcileRun: "runtime:reconcile-run",
+  refreshMemory: "runtime:refresh-memory",
 } as const;
 
 export interface AppInfo {
@@ -43,6 +44,10 @@ export interface RunCommand {
   runId: string;
 }
 
+export interface RefreshMemoryCommand {
+  agentId: string;
+}
+
 export interface SendMessageResult {
   message: ConversationMessage;
   run: ConversationRun;
@@ -50,6 +55,10 @@ export interface SendMessageResult {
 
 export interface RunResult {
   run: ConversationRun;
+}
+
+export interface RefreshMemoryResult {
+  update: MemoryUpdate | null;
 }
 
 /** What the renderer sees as `window.opensquad`. */
@@ -62,4 +71,5 @@ export interface DesktopBridge {
   sendMessage(command: SendMessageCommand): Promise<SendMessageResult>;
   cancelRun(command: RunCommand): Promise<RunResult>;
   reconcileRun(command: RunCommand): Promise<RunResult>;
+  refreshMemory(command: RefreshMemoryCommand): Promise<RefreshMemoryResult>;
 }

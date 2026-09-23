@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type {
+  RefreshMemoryCommand,
+  RefreshMemoryResult,
   RunCommand,
   RunResult,
   SendMessageCommand,
@@ -24,8 +26,36 @@ export const sendMessageCommandSchema = z.strictObject({
 });
 
 export const runCommandSchema = z.strictObject({ runId: z.uuid() });
+export const refreshMemoryCommandSchema = z.strictObject({ agentId: z.uuid() });
 
 const isoDateTime = z.iso.datetime();
+
+const memoryUpdateSchema = z.strictObject({
+  id: z.uuid(),
+  agentId: z.uuid(),
+  trigger: z.enum(["auto", "manual"]),
+  status: z.enum(["running", "succeeded", "failed"]),
+  changed: z
+    .array(
+      z.strictObject({
+        name: z.enum(["profile", "preferences", "notes"]),
+        fromVersion: z.number().int().min(0),
+        toVersion: z.number().int().min(1),
+      }),
+    )
+    .max(3),
+  errorCode: z.string().max(64).nullable(),
+  usage: z
+    .strictObject({
+      inputTokens: z.number().int().nonnegative(),
+      outputTokens: z.number().int().nonnegative(),
+    })
+    .nullable(),
+  createdAt: isoDateTime,
+  finishedAt: isoDateTime.nullable(),
+});
+
+const refreshMemoryResultSchema = z.strictObject({ update: memoryUpdateSchema.nullable() });
 
 const runSchema = z.strictObject({
   id: z.uuid(),
@@ -120,6 +150,7 @@ export interface RuntimeCommands {
   sendMessage(command: SendMessageCommand, signal?: AbortSignal): Promise<SendMessageResult>;
   cancelRun(command: RunCommand, signal?: AbortSignal): Promise<RunResult>;
   reconcileRun(command: RunCommand, signal?: AbortSignal): Promise<RunResult>;
+  refreshMemory(command: RefreshMemoryCommand, signal?: AbortSignal): Promise<RefreshMemoryResult>;
   abortAll(): void;
 }
 
@@ -262,6 +293,16 @@ export function createRuntimeCommands(options: RuntimeCommandsOptions): RuntimeC
       const parsed = runCommandSchema.safeParse(command);
       if (!parsed.success) return Promise.reject(new CommandError("invalid request"));
       return request(`/runs/${parsed.data.runId}/reconcile`, {}, runResultSchema, signal);
+    },
+    refreshMemory: (command, signal) => {
+      const parsed = refreshMemoryCommandSchema.safeParse(command);
+      if (!parsed.success) return Promise.reject(new CommandError("invalid request"));
+      return request(
+        `/agents/${parsed.data.agentId}/memory/refresh`,
+        {},
+        refreshMemoryResultSchema,
+        signal,
+      );
     },
     abortAll: () => {
       for (const controller of controllers) controller.abort();

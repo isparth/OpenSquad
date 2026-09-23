@@ -272,14 +272,36 @@ const memoryRevision = {
   content: "Name: Parth",
   createdAt: "2026-09-15T00:00:00.000Z",
 };
+const memoryUpdate = {
+  id: "77777777-7777-4777-8777-777777777777",
+  agentId: "11111111-1111-4111-8111-111111111111",
+  trigger: "auto",
+  status: "succeeded",
+  changed: [{ name: "profile", fromVersion: 0, toVersion: 1 }],
+  errorCode: null,
+  usage: { inputTokens: 10, outputTokens: 5 },
+  createdAt: "2026-09-15T00:00:00.000Z",
+  finishedAt: "2026-09-15T00:00:05.000Z",
+};
 
 describe("memory client", () => {
   it("parses memory documents and revision pages into checked fields", async () => {
     const fetch = vi.mocked(globalThis.fetch);
     fetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ documents: [{ ...memoryDocument, extra: "ignored" }] })),
+      new Response(
+        JSON.stringify({
+          documents: [{ ...memoryDocument, extra: "ignored" }],
+          autoUpdate: true,
+          lastUpdate: memoryUpdate,
+          reviewList: [],
+        }),
+      ),
     );
-    expect(await api.getMemory("agent-1")).toEqual([memoryDocument]);
+    expect(await api.getMemory("agent-1")).toEqual({
+      documents: [memoryDocument],
+      autoUpdate: true,
+      lastUpdate: memoryUpdate,
+    });
     fetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ items: [memoryRevision], nextCursor: "2" })),
     );
@@ -296,7 +318,9 @@ describe("memory client", () => {
       { ...memoryDocument, version: -1 },
       { name: "profile", scope: "shared", content: "", version: 0, updatedAt: null },
     ]) {
-      fetch.mockResolvedValueOnce(new Response(JSON.stringify({ documents: [document] })));
+      fetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ documents: [document], autoUpdate: true, lastUpdate: null })),
+      );
       await expect(api.getMemory("agent-1")).rejects.toThrow("Invalid memory response");
     }
     fetch.mockResolvedValueOnce(
@@ -307,6 +331,65 @@ describe("memory client", () => {
     await expect(api.listMemoryRevisions("agent-1", "profile", null)).rejects.toThrow(
       "Invalid memory response",
     );
+  });
+
+  it.each([
+    { ...memoryUpdate, status: "queued" },
+    {
+      ...memoryUpdate,
+      changed: Array.from({ length: 4 }, () => ({ name: "notes", fromVersion: 0, toVersion: 1 })),
+    },
+    { ...memoryUpdate, changed: [{ name: "profile", fromVersion: -1, toVersion: 1 }] },
+    { ...memoryUpdate, usage: { inputTokens: 1, outputTokens: -1 } },
+    { ...memoryUpdate, finishedAt: 42 },
+  ])("rejects malformed lastUpdate records", async (lastUpdate) => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ documents: [], autoUpdate: true, lastUpdate })),
+    );
+    await expect(api.getMemory("agent-1")).rejects.toThrow("Invalid memory response");
+  });
+
+  it("ignores additive fields in update records and their containers", async () => {
+    const futureUpdate = {
+      ...memoryUpdate,
+      reviewList: [],
+      changed: [{ ...memoryUpdate.changed[0], reviewedAt: memoryUpdate.createdAt }],
+      usage: { ...memoryUpdate.usage, cachedTokens: 2 },
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          documents: [],
+          autoUpdate: true,
+          lastUpdate: futureUpdate,
+          reviewList: [],
+        }),
+      ),
+    );
+    expect(await api.getMemory("agent-1")).toEqual({
+      documents: [],
+      autoUpdate: true,
+      lastUpdate: memoryUpdate,
+    });
+  });
+
+  it("updates the owner-wide auto-update setting", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ autoUpdate: false, futureField: true })),
+    );
+    await expect(api.setMemoryAutoUpdate(false)).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/memory/settings",
+      expect.objectContaining({
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoUpdate: false }),
+        redirect: "error",
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ autoUpdate: "false" })));
+    await expect(api.setMemoryAutoUpdate(false)).rejects.toThrow("Invalid memory response");
   });
 
   it("saves, reverts and forgets memory with the documented methods and payloads", async () => {

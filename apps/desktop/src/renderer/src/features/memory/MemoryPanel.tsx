@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { type ApiClient, ApiError, getApiClient } from "@/lib/api/client.js";
 import { useApiResource } from "../agents/useApiResource.js";
 import { ForgetMemoryDialog } from "./ForgetMemoryDialog.js";
+import { MemoryUpdates } from "./MemoryUpdates.js";
 
 const tabs: Array<{ name: MemoryDocumentName; label: string; placeholder: string }> = [
   {
@@ -45,7 +46,9 @@ export function MemoryPanel({
   const { data, error, loading, refresh } = useApiResource(load);
   const [memoryDocuments, setMemoryDocuments] = useState<MemoryDocument[] | null>(null);
   const [selected, setSelected] = useState<MemoryDocumentName>("profile");
-  const [drafts, setDrafts] = useState<Partial<Record<MemoryDocumentName, string>>>({});
+  const [drafts, setDrafts] = useState<
+    Partial<Record<MemoryDocumentName, { content: string; baseVersion: number }>>
+  >({});
   const [mutationBusy, setMutationBusy] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -61,7 +64,7 @@ export function MemoryPanel({
   const tabRefs = useRef<Partial<Record<MemoryDocumentName, HTMLButtonElement | null>>>({});
 
   useEffect(() => {
-    if (data) setMemoryDocuments(data);
+    if (data) setMemoryDocuments(data.documents);
   }, [data]);
 
   const current = memoryDocuments?.find((item) => item.name === selected);
@@ -85,14 +88,22 @@ export function MemoryPanel({
     );
   if (!current || !tab || !memoryDocuments) return null;
 
-  const expectedVersion = current.version;
-  const currentText = drafts[selected] ?? current.content;
-  const dirty = drafts[selected] !== undefined && drafts[selected] !== current.content;
+  const draft = drafts[selected];
+  const loadedVersion = current.version;
+  const expectedVersion = draft?.baseVersion ?? loadedVersion;
+  const currentText = draft?.content ?? current.content;
+  const dirty = draft !== undefined && draft.content !== current.content;
   const excess = Math.max(0, currentText.length - current.limit);
   const busy = disabled || mutationBusy;
 
   function handleEdit(content: string) {
-    setDrafts((current) => ({ ...current, [selected]: content }));
+    setDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [selected]: {
+        content,
+        baseVersion: currentDrafts[selected]?.baseVersion ?? loadedVersion,
+      },
+    }));
     setSaved(false);
     setMutationError(null);
     setConflict(false);
@@ -126,6 +137,11 @@ export function MemoryPanel({
     } finally {
       setHistoryLoading(false);
     }
+  }
+
+  function handleUpdateFinished(documents: MemoryDocument[]) {
+    setMemoryDocuments(documents);
+    if (historyOpen) void loadHistory(selected, null);
   }
 
   async function save() {
@@ -201,6 +217,14 @@ export function MemoryPanel({
         Your bots read this at the start of each new conversation. Changes apply to new
         conversations, not ones already open.
       </p>
+      <MemoryUpdates
+        key={agentId}
+        agentId={agentId}
+        autoUpdate={data?.autoUpdate ?? true}
+        lastUpdate={data?.lastUpdate ?? null}
+        disabled={busy}
+        onFinished={handleUpdateFinished}
+      />
       <div className="memory-tabs" role="tablist" aria-label="Memory documents">
         {tabs.map((item, index) => (
           <button

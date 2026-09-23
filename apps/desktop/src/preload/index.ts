@@ -14,6 +14,7 @@ const bridge: DesktopBridge = {
   sendMessage: (command) => ipcRenderer.invoke(IPC.sendMessage, command),
   cancelRun: (command) => ipcRenderer.invoke(IPC.cancelRun, command),
   reconcileRun: (command) => ipcRenderer.invoke(IPC.reconcileRun, command),
+  refreshMemory: (command) => ipcRenderer.invoke(IPC.refreshMemory, command),
 };
 
 contextBridge.exposeInMainWorld("opensquad", bridge);

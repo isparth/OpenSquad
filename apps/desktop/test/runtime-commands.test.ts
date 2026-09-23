@@ -6,6 +6,7 @@ const ORIGIN = "http://localhost:3000";
 const KEY = "sk-test-runtime-key";
 const CONVERSATION_ID = "11111111-1111-4111-8111-111111111111";
 const RUN_ID = "22222222-2222-4222-8222-222222222222";
+const AGENT_ID = "77777777-7777-4777-8777-777777777777";
 const CLIENT_REQUEST_ID = "33333333-3333-4333-8333-333333333333";
 
 const run = {
@@ -22,6 +23,18 @@ const run = {
   deadlineAt: "2026-01-01T00:10:00.000Z",
   usage: null,
   error: null,
+};
+
+const memoryUpdate = {
+  id: RUN_ID,
+  agentId: AGENT_ID,
+  trigger: "auto",
+  status: "running",
+  changed: [],
+  errorCode: null,
+  usage: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  finishedAt: null,
 };
 
 const message = {
@@ -105,6 +118,34 @@ describe("request shape", () => {
     expect(urls).toEqual([`${ORIGIN}/runs/${RUN_ID}/cancel`, `${ORIGIN}/runs/${RUN_ID}/reconcile`]);
   });
 
+  it("posts refreshMemory to the fixed route with the runtime key and empty body", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ update: memoryUpdate }, {}, 202));
+    const commands = makeCommands(fetchMock as unknown as typeof fetch);
+    await expect(commands.refreshMemory({ agentId: AGENT_ID })).resolves.toEqual({
+      update: memoryUpdate,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`${ORIGIN}/agents/${AGENT_ID}/memory/refresh`);
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({
+      "Content-Type": "application/json",
+      "X-OpenSquad-Runtime-Key": KEY,
+    });
+    expect(JSON.parse(init.body as string)).toEqual({});
+  });
+
+  it("parses both an accepted running update and no work to do", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ update: memoryUpdate }, {}, 200))
+      .mockResolvedValueOnce(jsonResponse({ update: null }, {}, 200));
+    const commands = makeCommands(fetchMock as unknown as typeof fetch);
+    await expect(commands.refreshMemory({ agentId: AGENT_ID })).resolves.toEqual({
+      update: memoryUpdate,
+    });
+    await expect(commands.refreshMemory({ agentId: AGENT_ID })).resolves.toEqual({ update: null });
+  });
+
   it("preserves clientRequestId exactly", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ message, run }));
     const commands = makeCommands(fetchMock as unknown as typeof fetch);
@@ -144,6 +185,13 @@ describe("validation", () => {
     const fetchMock = vi.fn();
     const commands = makeCommands(fetchMock as unknown as typeof fetch);
     await expect(commands.sendMessage(command as never)).rejects.toThrow("invalid request");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid refreshMemory agentId before fetch", async () => {
+    const fetchMock = vi.fn();
+    const commands = makeCommands(fetchMock as unknown as typeof fetch);
+    await expect(commands.refreshMemory({ agentId: "invalid" })).rejects.toThrow("invalid request");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -293,6 +341,23 @@ describe("response handling", () => {
     const fetchMock = vi.fn(async () => jsonResponse({ run: badRun }));
     const commands = makeCommands(fetchMock as unknown as typeof fetch);
     await expect(commands.cancelRun({ runId: RUN_ID })).rejects.toThrow("invalid response");
+  });
+
+  it.each([
+    { ...memoryUpdate, id: "not-a-uuid" },
+    { ...memoryUpdate, createdAt: "yesterday" },
+    { ...memoryUpdate, status: "unknown" },
+    { ...memoryUpdate, changed: [{ name: "profile", fromVersion: -1, toVersion: 1 }] },
+    {
+      ...memoryUpdate,
+      changed: Array.from({ length: 4 }, () => ({ name: "notes", fromVersion: 0, toVersion: 1 })),
+    },
+    { ...memoryUpdate, errorCode: "x".repeat(65) },
+    { ...memoryUpdate, usage: { inputTokens: -1, outputTokens: 0 } },
+  ])("rejects malformed memory update responses", async (update) => {
+    const fetchMock = vi.fn(async () => jsonResponse({ update }));
+    const commands = makeCommands(fetchMock as unknown as typeof fetch);
+    await expect(commands.refreshMemory({ agentId: AGENT_ID })).rejects.toThrow("invalid response");
   });
 
   it("rejects a declared content-length over 1 MiB and cancels the body", async () => {
