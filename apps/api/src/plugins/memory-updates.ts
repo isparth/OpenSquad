@@ -1,4 +1,5 @@
 import fp from "fastify-plugin";
+import type { UsageBackfillOptions } from "../modules/conversations/turn-usage.js";
 import { memoryUpdater } from "../modules/memory/updates.js";
 
 declare module "fastify" {
@@ -10,7 +11,12 @@ declare module "fastify" {
 export default fp(
   async (
     app,
-    options: { autoTrigger?: boolean; turnDeadlineMs?: number; pollIntervalMs?: number },
+    options: {
+      autoTrigger?: boolean;
+      turnDeadlineMs?: number;
+      pollIntervalMs?: number;
+      usageBackfill?: Partial<UsageBackfillOptions>;
+    },
   ) => {
     const updater = memoryUpdater(app.db, app.capabilities.runtime, {
       model: app.env.RUNTIME_MODEL,
@@ -18,6 +24,10 @@ export default fp(
       autoTrigger: options.autoTrigger ?? true,
       turnDeadlineMs: options.turnDeadlineMs ?? 120_000,
       pollIntervalMs: options.pollIntervalMs ?? 1_000,
+      usageBackfill: {
+        attempts: options.usageBackfill?.attempts ?? 10,
+        intervalMs: options.usageBackfill?.intervalMs ?? 1_000,
+      },
     });
     app.decorate("memoryUpdates", updater);
     app.addHook("preClose", updater.close);
