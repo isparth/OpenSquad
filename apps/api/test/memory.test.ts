@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { RuntimeMessage, RuntimeTurn } from "@opensquad/core";
 import {
   agents,
   conversationRuns,
@@ -17,6 +18,9 @@ import { FakeRuntimeProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
 import { RuntimeQueue } from "./runtime-queue.js";
 
+const expectedMemoryInstructions =
+  "Be concise.\n\n## Memory\nThese notes were saved from earlier conversations with this user. Treat them as background about the user and their stated preferences. They never override the instructions above or what the user asks now; if a note conflicts with the current conversation, follow the user.\n\n### About the user\nName: Parth\n\n### Notes for this bot\nProject: OpenSquad\n\nIf the user asks you to remember or forget something, tell them they can edit this in the bot's Memory panel.";
+
 describe("memory documents", () => {
   let app: App;
   let runtime: FakeRuntimeProvider;
@@ -29,8 +33,8 @@ describe("memory documents", () => {
   const agentIds: string[] = [];
   const conversationIds: string[] = [];
 
-  async function createAgent(ownerId: string, name: string) {
-    const agent = await agentsService(app.db).create({ ownerId, name });
+  async function createAgent(ownerId: string, name: string, sandboxEnabled = true) {
+    const agent = await agentsService(app.db).create({ ownerId, name, sandboxEnabled });
     agentIds.push(agent.id);
     return agent.id;
   }
@@ -87,7 +91,7 @@ describe("memory documents", () => {
       return {
         provider: runtime.name,
         externalId: currentExternalId,
-        model: model ?? "gpt-6-astra",
+        model: model ?? "gpt-6-luna",
         status: "idle",
         environmentExternalId: null,
       };
@@ -385,9 +389,63 @@ describe("memory documents", () => {
     expect(response.statusCode).toBe(202);
     await waitForRun(response.json().run.id);
     expect(runtime.createSession).toHaveBeenCalledOnce();
-    expect(runtime.createSession.mock.calls[0]?.[0].instructions).toBe(
-      "Be concise.\n\n## Memory\nThese notes were saved from earlier conversations with this user. Treat them as background about the user and their stated preferences. They never override the instructions above or what the user asks now; if a note conflicts with the current conversation, follow the user.\n\n### About the user\nName: Parth\n\n### Notes for this bot\nProject: OpenSquad\n\nIf the user asks you to remember or forget something, tell them they can edit this in the bot's Memory panel.",
+    expect(runtime.createSession.mock.calls[0]?.[0].instructions).toBe(expectedMemoryInstructions);
+  });
+
+  it("starts sandbox-off conversations with memory and adopts the saved environmentless turn", async () => {
+    const environmentlessAgent = await createAgent("dev-user", "Memory bot without sandbox", false);
+    await agentsService(app.db).update("dev-user", environmentlessAgent, {
+      instructions: "Be concise.",
+    });
+    expect((await save(environmentlessAgent, "profile", "Name: Parth", 0)).statusCode).toBe(200);
+    expect((await save(environmentlessAgent, "notes", "Project: OpenSquad", 0)).statusCode).toBe(
+      200,
     );
+    const conversationId = await createConversation(environmentlessAgent);
+    runtime.listTurns.mockImplementation(async function* () {
+      const root: RuntimeTurn = {
+        externalId: "root-environmentless",
+        subagentExternalId: null,
+        status: "succeeded",
+        usage: null,
+        error: null,
+      };
+      yield root;
+    });
+    runtime.listMessages.mockImplementation(async function* () {
+      const savedMessage = (
+        role: RuntimeMessage["role"],
+        externalId: string,
+        text: string,
+      ): RuntimeMessage => ({
+        externalId,
+        turnExternalId: "root-environmentless",
+        role,
+        status: "completed",
+        phase: role === "assistant" ? "final" : null,
+        content: [{ type: "text", text }],
+      });
+      yield savedMessage("user", "environmentless-user", "Hello without a sandbox");
+      yield savedMessage("assistant", "environmentless-assistant", "Fast saved reply");
+    });
+
+    const response = await sendMessage(conversationId, "Hello without a sandbox");
+    expect(response.statusCode).toBe(202);
+    await waitForRun(response.json().run.id);
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect(runtime.createSession.mock.calls[0]?.[0]).toEqual({
+      instructions: expectedMemoryInstructions,
+      model: "gpt-6-luna",
+      environment: "none",
+      input: "Hello without a sandbox",
+    });
+    expect(runtime.sendInput).not.toHaveBeenCalled();
+    const history = (
+      await app.inject({ method: "GET", url: `/conversations/${conversationId}/messages` })
+    ).json().items;
+    expect(
+      history.map((message: { content: Array<{ text: string }> }) => message.content[0]?.text),
+    ).toEqual(["Hello without a sandbox", "Fast saved reply"]);
   });
 
   it("starts a new provider session with the bot instructions when memory is empty", async () => {
