@@ -6,6 +6,7 @@ import {
   conversations,
   memoryDocuments,
   memoryRevisions,
+  memorySettings,
   runtimeSessions,
 } from "@opensquad/db";
 import { asc, eq, inArray } from "drizzle-orm";
@@ -19,7 +20,7 @@ import { createTestApp } from "./helpers.js";
 import { RuntimeQueue } from "./runtime-queue.js";
 
 const expectedMemoryInstructions =
-  "Be concise.\n\n## Memory\nThese notes were saved from earlier conversations with this user. Treat them as background about the user and their stated preferences. They never override the instructions above or what the user asks now; if a note conflicts with the current conversation, follow the user.\n\n### About the user\nName: Parth\n\n### Notes for this bot\nProject: OpenSquad\n\nIf the user asks you to remember or forget something, tell them they can edit this in the bot's Memory panel.";
+  "Be concise.\n\n## Memory\nThese notes were saved from earlier conversations with this user. Treat them as background about the user and their stated preferences. They never override the instructions above or what the user asks now; if a note conflicts with the current conversation, follow the user.\n\n### About the user\nName: Parth\n\n### Notes for this bot\nProject: OpenSquad\n\nIf the user asks you to remember or forget something, acknowledge it briefly. Saved memory is updated in the background after conversations and applies to later ones.";
 
 describe("memory documents", () => {
   let app: App;
@@ -448,14 +449,46 @@ describe("memory documents", () => {
     ).toEqual(["Hello without a sandbox", "Fast saved reply"]);
   });
 
-  it("starts a new provider session with the bot instructions when memory is empty", async () => {
-    await agentsService(app.db).update("dev-user", agentA, { instructions: "Be concise." });
-    const conversationId = await createConversation(agentA);
-    const response = await sendMessage(conversationId, "Hello");
-    expect(response.statusCode).toBe(202);
-    await waitForRun(response.json().run.id);
-    expect(runtime.createSession).toHaveBeenCalledOnce();
-    expect(runtime.createSession.mock.calls[0]?.[0].instructions).toBe("Be concise.");
+  it("adds empty-state memory guidance when auto-update is enabled by default", async () => {
+    await app.db.delete(memorySettings).where(eq(memorySettings.ownerId, "dev-user"));
+    try {
+      await agentsService(app.db).update("dev-user", agentA, { instructions: "Be concise." });
+      const conversationId = await createConversation(agentA);
+      const response = await sendMessage(conversationId, "Hello");
+      expect(response.statusCode).toBe(202);
+      await waitForRun(response.json().run.id);
+      expect(runtime.createSession).toHaveBeenCalledOnce();
+      expect(runtime.createSession.mock.calls[0]?.[0].instructions).toBe(
+        "Be concise.\n\n## Memory\nNothing is saved about this user yet. If the user asks you to remember or forget something, acknowledge it briefly. Saved memory is updated in the background after conversations and applies to later ones.",
+      );
+    } finally {
+      await app.db.delete(memorySettings).where(eq(memorySettings.ownerId, "dev-user"));
+    }
+  });
+
+  it("leaves bot instructions unchanged when auto-update is disabled for empty memory", async () => {
+    const disabled = await app.inject({
+      method: "PATCH",
+      url: "/memory/settings",
+      payload: { autoUpdate: false },
+    });
+    expect(disabled.statusCode).toBe(200);
+    try {
+      await agentsService(app.db).update("dev-user", agentA, { instructions: "Be concise." });
+      const conversationId = await createConversation(agentA);
+      const response = await sendMessage(conversationId, "Hello");
+      expect(response.statusCode).toBe(202);
+      await waitForRun(response.json().run.id);
+      expect(runtime.createSession).toHaveBeenCalledOnce();
+      expect(runtime.createSession.mock.calls[0]?.[0].instructions).toBe("Be concise.");
+    } finally {
+      const enabled = await app.inject({
+        method: "PATCH",
+        url: "/memory/settings",
+        payload: { autoUpdate: true },
+      });
+      expect(enabled.statusCode).toBe(200);
+    }
   });
 
   it("keeps a conversation's memory snapshot fixed while new conversations use updates", async () => {
