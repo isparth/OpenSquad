@@ -73,13 +73,17 @@ export async function memorySnapshot(
   });
 }
 
-async function assertAgent(tx: Transaction, ownerId: string, agentId: string) {
-  const [agent] = await tx
-    .select({ id: agents.id })
-    .from(agents)
-    .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)))
-    .for("share");
-  if (!agent) throw new MemoryError(404, "Bot not found");
+async function assertAgent(
+  executor: Database | Transaction,
+  ownerId: string,
+  agentId: string,
+  lock = false,
+) {
+  const condition = and(eq(agents.id, agentId), eq(agents.ownerId, ownerId));
+  const result = lock
+    ? await executor.select({ id: agents.id }).from(agents).where(condition).for("share")
+    : await executor.select({ id: agents.id }).from(agents).where(condition);
+  if (result.length === 0) throw new MemoryError(404, "Bot not found");
 }
 
 export function memoryService(db: Database) {
@@ -95,7 +99,7 @@ export function memoryService(db: Database) {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`memory:${ownerId}`}, 0))`,
       );
-      await assertAgent(tx, ownerId, agentId);
+      await assertAgent(tx, ownerId, agentId, true);
       if (content.length > documentLimits[name])
         throw new MemoryError(400, "Memory document is too long");
       if (content.includes("\u0000"))
@@ -148,11 +152,7 @@ export function memoryService(db: Database) {
 
   return {
     list: async (ownerId: string, agentId: string): Promise<MemoryDocument[]> => {
-      const [agent] = await db
-        .select({ id: agents.id })
-        .from(agents)
-        .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
-      if (!agent) throw new MemoryError(404, "Bot not found");
+      await assertAgent(db, ownerId, agentId);
       const rows = await db
         .select()
         .from(memoryDocuments)
@@ -183,11 +183,7 @@ export function memoryService(db: Database) {
       limit: number,
       before?: number,
     ): Promise<{ items: MemoryRevision[]; nextCursor: string | null }> => {
-      const [agent] = await db
-        .select({ id: agents.id })
-        .from(agents)
-        .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
-      if (!agent) throw new MemoryError(404, "Bot not found");
+      await assertAgent(db, ownerId, agentId);
       const conditions = [scopedDocument(ownerId, agentId, name)];
       if (before !== undefined) conditions.push(lt(memoryRevisions.version, before));
       const rows = await db
@@ -220,11 +216,7 @@ export function memoryService(db: Database) {
       version: number,
       expectedVersion: number,
     ): Promise<MemoryDocument> => {
-      const [agent] = await db
-        .select({ id: agents.id })
-        .from(agents)
-        .where(and(eq(agents.id, agentId), eq(agents.ownerId, ownerId)));
-      if (!agent) throw new MemoryError(404, "Bot not found");
+      await assertAgent(db, ownerId, agentId);
       const [revision] = await db
         .select({ content: memoryRevisions.content })
         .from(memoryRevisions)
