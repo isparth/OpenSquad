@@ -3,6 +3,12 @@ import type { FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { readRuntimeKey } from "../../auth/runtime-key.js";
+import {
+  keepMemoryReview,
+  listMemoryReviews,
+  pendingMemoryReviewCount,
+  undoMemoryReview,
+} from "./reviews.js";
 import { MemoryError, memoryService } from "./service.js";
 
 const idParams = z.object({ id: z.uuid() });
@@ -16,6 +22,10 @@ const revisionQuery = z.strictObject({
     .string()
     .regex(/^[1-9]\d{0,9}$/)
     .optional(),
+});
+const reviewQuery = z.strictObject({
+  limit: z.coerce.number().int().min(1).max(20).default(10),
+  cursor: z.string().max(128).optional(),
 });
 const saveBody = z.strictObject({
   content: z.string(),
@@ -56,13 +66,27 @@ const routes: FastifyPluginAsyncZod = async (app) => {
   });
   const service = memoryService(app.db);
 
+  app.get(
+    "/agents/:id/memory/reviews",
+    { schema: { params: idParams, querystring: reviewQuery } },
+    async (request) =>
+      listMemoryReviews(
+        app.db,
+        request.userId as string,
+        request.params.id,
+        request.query.limit,
+        request.query.cursor,
+      ),
+  );
+
   app.get("/agents/:id/memory", { schema: { params: idParams } }, async (request) => {
     const ownerId = request.userId as string;
-    const [documents, status] = await Promise.all([
+    const [documents, status, pendingReviewCount] = await Promise.all([
       service.list(ownerId, request.params.id),
       service.status(ownerId, request.params.id),
+      pendingMemoryReviewCount(app.db, ownerId, request.params.id),
     ]);
-    return { documents, ...status };
+    return { documents, ...status, pendingReviewCount };
   });
 
   app.post(
@@ -128,6 +152,24 @@ const routes: FastifyPluginAsyncZod = async (app) => {
         request.body.expectedVersion,
       ),
     }),
+  );
+
+  app.post(
+    "/memory/updates/:id/keep",
+    { schema: { params: idParams, body: z.strictObject({}).nullish() } },
+    async (request, reply) => {
+      await keepMemoryReview(app.db, request.userId as string, request.params.id);
+      return reply.code(204).send();
+    },
+  );
+
+  app.post(
+    "/memory/updates/:id/undo",
+    { schema: { params: idParams, body: z.strictObject({}).nullish() } },
+    async (request, reply) => {
+      await undoMemoryReview(app.db, request.userId as string, request.params.id);
+      return reply.code(204).send();
+    },
   );
 
   app.delete("/memory", async (request, reply) => {

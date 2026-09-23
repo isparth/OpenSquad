@@ -15,7 +15,7 @@ import {
   memorySources,
   memoryUpdates,
 } from "@opensquad/db";
-import { and, count, eq, gt, gte, isNull, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, gte, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { awaitTurnUsage, type UsageBackfillOptions } from "../conversations/turn-usage.js";
 import {
@@ -141,6 +141,20 @@ export function memoryUpdater(
       await lockMemoryOwner(tx, ownerId);
       await assertAgent(tx, ownerId, agentId, true);
       await sweepExpiredMemoryUpdates(tx, ownerId);
+      await tx
+        .delete(memoryUpdates)
+        .where(
+          and(
+            eq(memoryUpdates.ownerId, ownerId),
+            ne(memoryUpdates.status, "running"),
+            lt(memoryUpdates.createdAt, sql`clock_timestamp() - interval '30 days'`),
+            or(
+              eq(memoryUpdates.status, "failed"),
+              isNotNull(memoryUpdates.reviewedAt),
+              sql`jsonb_array_length(${memoryUpdates.changed}) = 0`,
+            ),
+          ),
+        );
 
       if (trigger === "auto") {
         const [setting] = await tx

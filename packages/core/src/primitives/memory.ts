@@ -37,3 +37,23 @@ export interface MemoryUpdate {
   createdAt: string;
   finishedAt: string | null;
 }
+
+export interface MemoryReviewChange {
+  name: MemoryDocumentName;
+  fromVersion: number;
+  toVersion: number;
+  before: string | null;
+  after: string | null;
+  current: boolean;
+}
+
+export interface MemoryReview {
+  updateId: string;
+  agentId: string;
+  agentName: string;
+  trigger: MemoryUpdateTrigger;
+  createdAt: string;
+  finishedAt: string | null;
+  sources: Array<{ conversationId: string; title: string | null; startedAt: string }>;
+  changes: MemoryReviewChange[];
+}
