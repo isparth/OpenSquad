@@ -420,6 +420,41 @@ h3 {
   flex-direction: column;
   gap: 14px;
 }
+.memory-updates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--canvas);
+}
+.memory-auto-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.memory-auto-toggle input {
+  accent-color: var(--accent);
+}
+.memory-auto-description,
+.memory-update-status,
+.memory-key-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.memory-update-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.memory-update-error {
+  margin: 0;
+}
 .memory-intro,
 .memory-scope {
   font-size: 12px;
