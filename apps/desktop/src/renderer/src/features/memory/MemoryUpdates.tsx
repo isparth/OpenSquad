@@ -1,6 +1,6 @@
-import type { MemoryDocument, MemoryDocumentName, MemoryUpdate } from "@opensquad/core";
+import type { MemoryDocumentName, MemoryUpdate } from "@opensquad/core";
 import { useEffect, useId, useRef, useState } from "react";
-import { getApiClient } from "@/lib/api/client.js";
+import { getApiClient, type MemoryResponse } from "@/lib/api/client.js";
 import { useRuntimeKey } from "../runtime-key/RuntimeKeyContext.js";
 
 const noKeyMessage = "Add your OpenAI key to update memory.";
@@ -45,7 +45,7 @@ export function MemoryUpdates({
   autoUpdate: boolean;
   lastUpdate: MemoryUpdate | null;
   disabled: boolean;
-  onFinished: (documents: MemoryDocument[]) => void;
+  onFinished: (memory: MemoryResponse) => void;
 }) {
   const { status: runtimeKeyStatus } = useRuntimeKey();
   const id = useId();
@@ -88,7 +88,7 @@ export function MemoryUpdates({
           timer = window.setTimeout(() => void poll(), 2_000);
         } else {
           setActionStatus(null);
-          onFinishedRef.current(result.documents);
+          onFinishedRef.current(result);
         }
       } catch {
         if (!stopped && !controller.signal.aborted)
