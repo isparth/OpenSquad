@@ -104,14 +104,14 @@ describe("OpenAIAgentsProvider", () => {
 
     expect(
       await runtime.createSession(
-        { instructions: "Be helpful", environment: "none", input: "Hi" },
+        { instructions: "Be helpful", environment: "none", input: "  Hi\n" },
         credentials,
       ),
     ).toMatchObject({ environmentExternalId: null });
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
       agent: { model: "gpt-6-luna", instructions: "Be helpful" },
       environment: { type: "none" },
-      input: [{ role: "user", content: [{ type: "input_text", text: "Hi" }] }],
+      input: [{ role: "user", content: [{ type: "input_text", text: "  Hi\n" }] }],
     });
   });
 
@@ -119,6 +119,7 @@ describe("OpenAIAgentsProvider", () => {
     { instructions: "Be helpful", environment: "none" as const },
     { instructions: "Be helpful", environment: "none" as const, input: "  " },
     { instructions: "Be helpful", environment: "hosted" as const, input: "Hi" },
+    { instructions: "Be helpful", input: "Hi" },
   ])("rejects invalid environment input before making a request: %j", async (options) => {
     const { runtime, fetch } = setup();
     await expect(runtime.createSession(options, credentials)).rejects.toThrow();
