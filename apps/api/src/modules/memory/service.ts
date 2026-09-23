@@ -7,6 +7,7 @@ import type {
 import { agents, type Database, memoryDocuments, memoryRevisions } from "@opensquad/db";
 import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import type { Transaction } from "../conversations/persistence.js";
+import { renderMemory } from "./render.js";
 
 const documentNames: MemoryDocumentName[] = ["profile", "preferences", "notes"];
 const documentLimits: Record<MemoryDocumentName, number> = {
@@ -45,6 +46,31 @@ function scopedDocument(ownerId: string, agentId: string, name: MemoryDocumentNa
     eq(memoryDocuments.name, name),
     name === "notes" ? eq(memoryDocuments.agentId, agentId) : isNull(memoryDocuments.agentId),
   );
+}
+
+export async function memorySnapshot(
+  tx: Transaction,
+  ownerId: string,
+  agentId: string,
+): Promise<string> {
+  const rows = await tx
+    .select({
+      name: memoryDocuments.name,
+      agentId: memoryDocuments.agentId,
+      content: memoryDocuments.content,
+    })
+    .from(memoryDocuments)
+    .where(
+      and(
+        eq(memoryDocuments.ownerId, ownerId),
+        or(isNull(memoryDocuments.agentId), eq(memoryDocuments.agentId, agentId)),
+      ),
+    );
+  return renderMemory({
+    profile: rows.find((row) => row.name === "profile")?.content ?? "",
+    preferences: rows.find((row) => row.name === "preferences")?.content ?? "",
+    notes: rows.find((row) => row.name === "notes" && row.agentId === agentId)?.content ?? "",
+  });
 }
 
 async function assertAgent(tx: Transaction, ownerId: string, agentId: string) {

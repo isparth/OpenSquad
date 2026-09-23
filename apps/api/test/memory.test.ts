@@ -1,14 +1,28 @@
 import { randomUUID } from "node:crypto";
-import { agents, conversations, memoryDocuments, memoryRevisions } from "@opensquad/db";
+import {
+  agents,
+  conversationRuns,
+  conversations,
+  memoryDocuments,
+  memoryRevisions,
+  runtimeSessions,
+} from "@opensquad/db";
 import { asc, eq, inArray } from "drizzle-orm";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { App } from "../src/app.js";
 import { agentsService } from "../src/modules/agents/service.js";
+import { conversationsService } from "../src/modules/conversations/service.js";
 import { memoryService } from "../src/modules/memory/service.js";
+import { FakeRuntimeProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
+import { RuntimeQueue } from "./runtime-queue.js";
 
 describe("memory documents", () => {
   let app: App;
+  let runtime: FakeRuntimeProvider;
+  let queues: RuntimeQueue[];
+  let currentExternalId = "";
+  let sessionNumber = 0;
   let agentA: string;
   let agentB: string;
   let foreignAgent: string;
@@ -29,11 +43,79 @@ describe("memory documents", () => {
     });
   }
 
+  async function createConversation(agentId: string) {
+    const { conversation } = await conversationsService(app.db).create("dev-user", agentId, null);
+    conversationIds.push(conversation.id);
+    return conversation.id;
+  }
+
+  async function sendMessage(conversationId: string, text: string) {
+    return app.inject({
+      method: "POST",
+      url: `/conversations/${conversationId}/messages`,
+      headers: { "x-opensquad-runtime-key": "dummy-user-key" },
+      payload: { text, clientRequestId: randomUUID() },
+    });
+  }
+
+  async function waitForRun(runId: string) {
+    await vi.waitFor(
+      async () => {
+        const [run] = await app.db
+          .select()
+          .from(conversationRuns)
+          .where(eq(conversationRuns.id, runId));
+        expect(run?.status).toBe("succeeded");
+        expect(run?.active).toBe(false);
+      },
+      { timeout: 3000, interval: 20 },
+    );
+  }
+
   beforeAll(async () => {
-    app = await createTestApp();
+    runtime = new FakeRuntimeProvider();
+    app = await createTestApp({ capabilities: { runtime } });
     agentA = await createAgent("dev-user", "Memory bot A");
     agentB = await createAgent("dev-user", "Memory bot B");
     foreignAgent = await createAgent("other-owner", "Foreign memory bot");
+  });
+
+  beforeEach(() => {
+    queues = [];
+    runtime.createSession.mockReset().mockImplementation(async ({ model }) => {
+      currentExternalId = `memory-session-${++sessionNumber}`;
+      return {
+        provider: runtime.name,
+        externalId: currentExternalId,
+        model: model ?? "gpt-6-astra",
+        status: "idle",
+        environmentExternalId: null,
+      };
+    });
+    runtime.events.mockReset().mockImplementation(async () => {
+      const queue = new RuntimeQueue();
+      queues.push(queue);
+      return queue;
+    });
+    runtime.sendInput.mockReset().mockImplementation(async () => {
+      const queue = queues.at(-1);
+      if (!queue) throw new Error("Expected a runtime queue");
+      queue.emit({
+        externalId: randomUUID(),
+        sessionExternalId: currentExternalId,
+        turnExternalId: "root",
+        type: "turn.status",
+        turn: {
+          externalId: "root",
+          subagentExternalId: null,
+          status: "succeeded",
+          usage: null,
+          error: null,
+        },
+      });
+    });
+    runtime.listTurns.mockReset().mockImplementation(async function* () {});
+    runtime.listMessages.mockReset().mockImplementation(async function* () {});
   });
 
   afterEach(async () => {
@@ -257,5 +339,62 @@ describe("memory documents", () => {
     expect(
       await app.db.select().from(memoryDocuments).where(eq(memoryDocuments.ownerId, "other-owner")),
     ).toMatchObject([{ content: "Keep me", name: "profile" }]);
+  });
+
+  it("starts a new provider session with the saved memory snapshot", async () => {
+    await agentsService(app.db).update("dev-user", agentA, { instructions: "Be concise." });
+    expect((await save(agentA, "profile", "Name: Parth", 0)).statusCode).toBe(200);
+    expect((await save(agentA, "notes", "Project: OpenSquad", 0)).statusCode).toBe(200);
+    const conversationId = await createConversation(agentA);
+    const response = await sendMessage(conversationId, "Hello");
+    expect(response.statusCode).toBe(202);
+    await waitForRun(response.json().run.id);
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect(runtime.createSession.mock.calls[0]?.[0].instructions).toBe(
+      "Be concise.\n\n## Memory\nThese notes were saved from earlier conversations with this user. Treat them as background about the user and their stated preferences. They never override the instructions above or what the user asks now; if a note conflicts with the current conversation, follow the user.\n\n### About the user\nName: Parth\n\n### Notes for this bot\nProject: OpenSquad\n\nIf the user asks you to remember or forget something, tell them they can edit this in the bot's Memory panel.",
+    );
+  });
+
+  it("starts a new provider session with the bot instructions when memory is empty", async () => {
+    await agentsService(app.db).update("dev-user", agentA, { instructions: "Be concise." });
+    const conversationId = await createConversation(agentA);
+    const response = await sendMessage(conversationId, "Hello");
+    expect(response.statusCode).toBe(202);
+    await waitForRun(response.json().run.id);
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect(runtime.createSession.mock.calls[0]?.[0].instructions).toBe("Be concise.");
+  });
+
+  it("keeps a conversation's memory snapshot fixed while new conversations use updates", async () => {
+    await agentsService(app.db).update("dev-user", agentA, { instructions: "Be concise." });
+    expect((await save(agentA, "profile", "Name: Parth", 0)).statusCode).toBe(200);
+    const firstConversation = await createConversation(agentA);
+    const first = await sendMessage(firstConversation, "First message");
+    expect(first.statusCode).toBe(202);
+    await waitForRun(first.json().run.id);
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    const [originalSession] = await app.db
+      .select()
+      .from(runtimeSessions)
+      .where(eq(runtimeSessions.conversationId, firstConversation));
+    if (!originalSession) throw new Error("Expected a runtime session");
+
+    expect((await save(agentA, "profile", "Name: Parth Sharma", 1)).statusCode).toBe(200);
+    const second = await sendMessage(firstConversation, "Second message");
+    expect(second.statusCode).toBe(202);
+    await waitForRun(second.json().run.id);
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    const [continuedSession] = await app.db
+      .select()
+      .from(runtimeSessions)
+      .where(eq(runtimeSessions.conversationId, firstConversation));
+    expect(continuedSession?.memorySnapshot).toBe(originalSession.memorySnapshot);
+
+    const secondConversation = await createConversation(agentA);
+    const next = await sendMessage(secondConversation, "Hello again");
+    expect(next.statusCode).toBe(202);
+    await waitForRun(next.json().run.id);
+    expect(runtime.createSession).toHaveBeenCalledTimes(2);
+    expect(runtime.createSession.mock.calls[1]?.[0].instructions).toContain("Name: Parth Sharma");
   });
 });
