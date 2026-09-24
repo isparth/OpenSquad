@@ -1,4 +1,5 @@
 import type {
+  ConversationFile,
   ConversationMessage,
   ConversationParticipant,
   ConversationRun,
@@ -10,6 +11,7 @@ import { AgentAvatar } from "../agents/AgentAvatar.js";
 import { useApiResource } from "../agents/useApiResource.js";
 import { useRuntimeKey } from "../runtime-key/RuntimeKeyContext.js";
 import { CommandRow } from "./CommandRow.js";
+import { ConversationFiles } from "./ConversationFiles.js";
 import { useConversationStream } from "./useConversationStream.js";
 
 const RECONCILE_CODES = new Set(["uncertain_mutation", "worker_lost", "stream_disconnected"]);
@@ -321,9 +323,39 @@ function Thread({
   const [sendError, setSendError] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runBusy, setRunBusy] = useState(false);
+  const [fileLoadError, setFileLoadError] = useState<string | null>(null);
   const scroller = useRef<HTMLOListElement>(null);
   const nearBottom = useRef(true);
   const messages = thread.messages;
+  const lastAssistantByRun = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role === "assistant") lastAssistantByRun.set(message.runId, message.id);
+  }
+  const filesByMessageId = new Map<string, ConversationFile[]>();
+  for (const file of thread.files) {
+    const messageId = lastAssistantByRun.get(file.runId);
+    if (!messageId) continue;
+    const files = filesByMessageId.get(messageId) ?? [];
+    files.push(file);
+    filesByMessageId.set(messageId, files);
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setFileLoadError(null);
+    void getApiClient()
+      .then((client) => {
+        if (controller.signal.aborted) return null;
+        return client.listConversationFiles(conversationId, null, controller.signal);
+      })
+      .then((page) => {
+        if (page && !controller.signal.aborted) apply({ type: "files.loaded", payload: page });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFileLoadError("Couldn't load files.");
+      });
+    return () => controller.abort();
+  }, [apply, conversationId]);
 
   useEffect(() => {
     void messages;
@@ -424,6 +456,7 @@ function Thread({
         {thread.messages.map((message) => {
           const commentary = message.role === "assistant" && message.phase === "commentary";
           const hasCommand = message.content.some((part) => part.type === "command");
+          const files = filesByMessageId.get(message.id) ?? [];
           return (
             <li
               key={message.id}
@@ -436,10 +469,18 @@ function Thread({
                   <span aria-hidden="true"> …</span>
                 )}
               </div>
+              {files.length > 0 && (
+                <ConversationFiles conversationId={conversationId} files={files} />
+              )}
             </li>
           );
         })}
       </ol>
+      {fileLoadError && (
+        <p role="alert" className="error-message">
+          {fileLoadError}
+        </p>
+      )}
       <div className="chat-status-bar" role="status">
         {stream === "reconnecting" && <p className="muted">Reconnecting to live updates…</p>}
         {stream === "closed" && (

@@ -1,4 +1,4 @@
-import type { ConversationMessage, ConversationRun } from "@opensquad/core";
+import type { ConversationFile, ConversationMessage, ConversationRun } from "@opensquad/core";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatView } from "@/features/chat/ChatView.js";
@@ -26,6 +26,16 @@ const created = {
   id: "c-2",
   title: null,
   createdAt: "2026-09-16T00:00:00.000Z",
+};
+const conversationFile: ConversationFile = {
+  id: "f-1",
+  conversationId: "c-1",
+  runId: "r-1",
+  name: "reports/fruit.csv",
+  sizeBytes: 14,
+  contentType: "text/csv",
+  status: "stored",
+  createdAt: "2026-09-15T00:00:01.000Z",
 };
 
 const userParticipant = {
@@ -65,12 +75,13 @@ function assistantMessage(
   sequence: string,
   phase: ConversationMessage["phase"],
   content: ConversationMessage["content"],
+  runId = "r-1",
 ): ConversationMessage {
   return {
     id,
     conversationId: "c-1",
     participantId: "p-agent",
-    runId: "r-1",
+    runId,
     sequence,
     role: "assistant",
     content,
@@ -119,6 +130,8 @@ function routedFetch(input: RequestInfo | URL): Promise<Response> {
   if (path === "/conversations")
     return Promise.resolve(Response.json({ items: [conversation], nextCursor: null }));
   if (path === "/conversations/c-1/messages")
+    return Promise.resolve(Response.json({ items: [], nextCursor: null }));
+  if (/^\/conversations\/[^/]+\/files$/.test(path))
     return Promise.resolve(Response.json({ items: [], nextCursor: null }));
   return Promise.resolve(new Response("not found", { status: 404 }));
 }
@@ -389,6 +402,105 @@ describe("chat view", () => {
       screen.getByText("cat /workspace/outputs/hello.txt", { selector: "code" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show output" })).toBeInTheDocument();
+  });
+
+  it("loads files and places them beneath the last assistant message for each run", async () => {
+    const tooLarge: ConversationFile = {
+      ...conversationFile,
+      id: "f-large",
+      name: "oversized.bin",
+      sizeBytes: 26 * 1024 * 1024,
+      status: "too_large",
+    };
+    const failed: ConversationFile = {
+      ...conversationFile,
+      id: "f-failed",
+      name: "failed.txt",
+      status: "failed",
+    };
+    const secondRunFile: ConversationFile = {
+      ...conversationFile,
+      id: "f-second-run",
+      runId: "r-2",
+      name: "second.txt",
+    };
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (new URL(url).pathname === "/conversations/c-1/files")
+        return Promise.resolve(
+          Response.json({ items: [conversationFile, tooLarge, failed], nextCursor: null }),
+        );
+      return routedFetch(input);
+    });
+    renderChat();
+    const source = await selectConversation();
+    const earlierCommentary = assistantMessage(
+      "m-r1-commentary",
+      "2",
+      "commentary",
+      [{ index: 0, type: "text", text: "Working on run one.", completed: true }],
+      "r-1",
+    );
+    const lastRunOne = assistantMessage(
+      "m-r1-final",
+      "3",
+      "final",
+      [{ index: 0, type: "text", text: "Run one reply.", completed: true }],
+      "r-1",
+    );
+    const lastRunTwo = assistantMessage(
+      "m-r2-final",
+      "4",
+      "final",
+      [{ index: 0, type: "text", text: "Run two reply.", completed: true }],
+      "r-2",
+    );
+    source.emit(
+      "conversation.snapshot",
+      snapshot({ latestMessages: [earlierCommentary, lastRunOne, lastRunTwo] }),
+    );
+
+    const firstFile = await screen.findByText("reports/fruit.csv");
+    const runOneMessage = screen.getByText("Run one reply.").closest(".chat-message");
+    expect(runOneMessage).toContainElement(firstFile);
+    expect(screen.getByText("Too large to keep (limit 25 MB)")).toBeInTheDocument();
+    expect(screen.getByText("Couldn't save this file")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Download/ })).toBeInTheDocument();
+    expect(screen.getByText("Working on run one.").closest(".chat-message")).not.toContainElement(
+      firstFile,
+    );
+
+    source.emit("files.updated", { runId: "r-2", files: [secondRunFile] });
+    const secondFile = await screen.findByText("second.txt");
+    expect(screen.getByText("Run two reply.").closest(".chat-message")).toContainElement(
+      secondFile,
+    );
+  });
+
+  it("shows a per-file error when a download request fails", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (new URL(url).pathname === "/conversations/c-1/files")
+        return Promise.resolve(Response.json({ items: [conversationFile], nextCursor: null }));
+      if (new URL(url).pathname === `/conversations/c-1/files/${conversationFile.id}/content`)
+        return Promise.resolve(new Response("nope", { status: 500 }));
+      return routedFetch(input);
+    });
+    renderChat();
+    const source = await selectConversation();
+    source.emit(
+      "conversation.snapshot",
+      snapshot({
+        latestMessages: [
+          assistantMessage("m-final", "2", "final", [
+            { index: 0, type: "text", text: "Run reply.", completed: true },
+          ]),
+        ],
+      }),
+    );
+    await screen.findByText(conversationFile.name);
+    fireEvent.click(screen.getByRole("button", { name: /Download/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't download this file");
   });
 
   it("renders commentary as a muted progress note", async () => {

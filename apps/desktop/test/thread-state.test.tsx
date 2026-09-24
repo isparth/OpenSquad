@@ -1,4 +1,4 @@
-import type { ConversationMessage, ConversationRun } from "@opensquad/core";
+import type { ConversationFile, ConversationMessage, ConversationRun } from "@opensquad/core";
 import { describe, expect, it } from "vitest";
 import {
   applyEvent,
@@ -105,6 +105,32 @@ describe("thread state", () => {
         payload: snapshot({ environment: { type: "other", status: "ready" } }),
       }),
     ).toBe(emptyThread);
+  });
+
+  it("merges files.updated records by id", () => {
+    const firstFile: ConversationFile = {
+      id: "file-1",
+      conversationId: "c-1",
+      runId: "r-1",
+      name: "report.csv",
+      sizeBytes: 14,
+      contentType: "text/csv",
+      status: "stored",
+      createdAt: "2026-09-15T00:00:00.000Z",
+    };
+    const secondFile: ConversationFile = { ...firstFile, id: "file-2", name: "notes.md" };
+    const first = applyEvent(emptyThread, {
+      type: "files.updated",
+      payload: { runId: "r-1", files: [firstFile] },
+    });
+    const second = applyEvent(first, {
+      type: "files.updated",
+      payload: { runId: "r-1", files: [firstFile, secondFile] },
+    });
+    expect(second.files).toEqual([firstFile, secondFile]);
+    expect(
+      applyEvent(second, { type: "files.updated", payload: { runId: "r-1", files: [null] } }),
+    ).toBe(second);
   });
 
   it("clears lastRun when the snapshot has an active run and keeps it otherwise", () => {

@@ -1,4 +1,5 @@
 import type {
+  ConversationFile,
   ConversationMessage,
   ConversationParticipant,
   ConversationRun,
@@ -13,6 +14,7 @@ export interface ThreadState {
   conversation: ConversationSummary | null;
   participants: ConversationParticipant[];
   messages: ConversationMessage[];
+  files: ConversationFile[];
   activeRun: ConversationRun | null;
   lastRun: ConversationRun | null;
   nextMessageCursor: string | null;
@@ -23,6 +25,7 @@ export const emptyThread: ThreadState = {
   conversation: null,
   participants: [],
   messages: [],
+  files: [],
   activeRun: null,
   lastRun: null,
   nextMessageCursor: null,
@@ -87,6 +90,22 @@ function isContentPart(value: unknown): value is MessageContentPart {
           value.durationMs >= 0)) &&
       typeof value.output === "string" &&
       typeof value.outputTruncated === "boolean")
+  );
+}
+
+function isConversationFile(value: unknown): value is ConversationFile {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.conversationId === "string" &&
+    typeof value.runId === "string" &&
+    typeof value.name === "string" &&
+    typeof value.sizeBytes === "number" &&
+    Number.isSafeInteger(value.sizeBytes) &&
+    value.sizeBytes >= 0 &&
+    typeof value.contentType === "string" &&
+    (value.status === "stored" || value.status === "too_large" || value.status === "failed") &&
+    typeof value.createdAt === "string"
   );
 }
 
@@ -193,6 +212,15 @@ function upsertMessage(
   return next;
 }
 
+function mergeFiles(current: ConversationFile[], incoming: ConversationFile[]): ConversationFile[] {
+  const byId = new Map(current.map((file) => [file.id, file]));
+  for (const file of incoming) byId.set(file.id, file);
+  return [...byId.values()].sort(
+    (first, second) =>
+      first.createdAt.localeCompare(second.createdAt) || first.id.localeCompare(second.id),
+  );
+}
+
 function editContentPart(
   state: ThreadState,
   messageId: unknown,
@@ -297,6 +325,33 @@ export function applyEvent(state: ThreadState, event: ThreadEvent): ThreadState 
       if (!isRecord(payload) || !isEnvironmentStatus(payload.status)) return state;
       const environment = state.environment ?? { type: "hosted" as const, status: null };
       return { ...state, environment: { ...environment, status: payload.status } };
+    }
+    case "files.loaded": {
+      if (!isRecord(payload) || !Array.isArray(payload.items)) return state;
+      const files = payload.items.filter(isConversationFile);
+      if (files.length !== payload.items.length) return state;
+      if (
+        state.conversation &&
+        files.some((file) => file.conversationId !== state.conversation?.id)
+      )
+        return state;
+      return { ...state, files: mergeFiles(state.files, files) };
+    }
+    case "files.updated": {
+      if (!isRecord(payload) || typeof payload.runId !== "string" || !Array.isArray(payload.files))
+        return state;
+      const files = payload.files.filter(isConversationFile);
+      if (
+        files.length !== payload.files.length ||
+        files.some((file) => file.runId !== payload.runId)
+      )
+        return state;
+      if (
+        state.conversation &&
+        files.some((file) => file.conversationId !== state.conversation?.id)
+      )
+        return state;
+      return { ...state, files: mergeFiles(state.files, files) };
     }
     case "run.updated": {
       if (!isRecord(payload) || !isRun(payload.run)) return state;

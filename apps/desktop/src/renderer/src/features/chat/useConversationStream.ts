@@ -18,6 +18,7 @@ const EVENT_TYPES = [
   "message.delta",
   "message.text.completed",
   "message.completed",
+  "files.updated",
   "run.updated",
   "stream.reset",
 ] as const;
