@@ -446,19 +446,64 @@ describe("OpenAIAgentsProvider", () => {
     expect(secondUrl.searchParams.get("after")).toBe("artifact_nul");
   });
 
-  it("rejects malformed artifact metadata instead of trusting it", async () => {
+  it("skips malformed artifact metadata while yielding valid siblings", async () => {
     const { runtime, fetch } = setup();
     fetch.mockResolvedValueOnce(
       json({
         data: [
-          { ...artifact("artifact_invalid", "/workspace/outputs/report.csv"), created_at: "bad" },
+          {
+            ...artifact("artifact_bad_date", "/workspace/outputs/bad-date.csv"),
+            created_at: "bad",
+          },
+          artifact("artifact invalid id", "/workspace/outputs/bad-id.csv"),
+          artifact("artifact_valid", "/workspace/outputs/report.csv"),
         ],
         has_more: false,
-        last_id: "artifact_invalid",
+        last_id: "artifact_valid",
       }),
     );
+
+    const artifacts = await collect(runtime.listArtifacts(session, credentials));
+    expect(artifacts.map((entry) => entry.externalId)).toEqual(["artifact_valid"]);
+  });
+
+  it("accepts artifact metadata with unknown fields", async () => {
+    const { runtime, fetch } = setup();
+    fetch.mockResolvedValueOnce(
+      json({
+        data: [
+          {
+            ...artifact("artifact_extended", "/workspace/outputs/extended.csv"),
+            new_beta_field: true,
+          },
+        ],
+        has_more: false,
+        last_id: "artifact_extended",
+      }),
+    );
+
+    await expect(collect(runtime.listArtifacts(session, credentials))).resolves.toMatchObject([
+      { externalId: "artifact_extended", path: "/workspace/outputs/extended.csv" },
+    ]);
+  });
+
+  it("continues to reject artifacts belonging to a different session", async () => {
+    const { runtime, fetch } = setup();
+    fetch.mockResolvedValueOnce(
+      json({
+        data: [
+          {
+            ...artifact("artifact_foreign", "/workspace/outputs/foreign.csv"),
+            session_id: "sess_other",
+          },
+        ],
+        has_more: false,
+        last_id: "artifact_foreign",
+      }),
+    );
+
     await expect(collect(runtime.listArtifacts(session, credentials))).rejects.toThrow(
-      "openai-agents: Invalid Agents API response",
+      "openai-agents: Artifact session mismatch",
     );
   });
 

@@ -93,7 +93,7 @@ const commandExecutionSchema = z.object({
   duration_ms: z.number().nonnegative().nullable(),
 });
 const artifactId = z.string().regex(/^[a-zA-Z0-9_-]+$/);
-const artifactSchema = z.strictObject({
+const artifactSchema = z.object({
   id: artifactId,
   object: z.literal("agent.session.artifact"),
   session_id: id,
@@ -153,7 +153,9 @@ export function normalizeArtifact(
   input: unknown,
   sessionExternalId: string,
 ): RuntimeArtifact | null {
-  const artifact = parse(artifactSchema, input);
+  const result = artifactSchema.safeParse(input);
+  if (!result.success) return null;
+  const artifact = result.data;
   if (artifact.session_id !== sessionExternalId)
     throw new Error("openai-agents: Artifact session mismatch");
   if (
