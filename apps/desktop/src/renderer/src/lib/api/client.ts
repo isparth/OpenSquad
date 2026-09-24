@@ -87,6 +87,21 @@ function parseContentPart(value: unknown): MessageContentPart {
   if (value.type === "image" && typeof value.url === "string") {
     return value as MessageContentPart;
   }
+  if (
+    value.type === "command" &&
+    typeof value.command === "string" &&
+    (value.cwd === null || typeof value.cwd === "string") &&
+    (value.exitCode === null ||
+      (typeof value.exitCode === "number" && Number.isInteger(value.exitCode))) &&
+    (value.durationMs === null ||
+      (typeof value.durationMs === "number" &&
+        Number.isFinite(value.durationMs) &&
+        value.durationMs >= 0)) &&
+    typeof value.output === "string" &&
+    typeof value.outputTruncated === "boolean"
+  ) {
+    return value as MessageContentPart;
+  }
   invalid();
 }
 

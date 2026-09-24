@@ -108,6 +108,22 @@ export function runtimeEvents(db: Database) {
           .where(eq(runtimeSessions.id, run.sessionId));
         if (session?.externalId !== event.sessionExternalId)
           throw new Error("Event session mismatch");
+        if (event.type === "environment.status") {
+          const receipts = await tx
+            .insert(runtimeEventReceipts)
+            .values({ sessionId: run.sessionId, eventId: event.externalId })
+            .onConflictDoNothing()
+            .returning();
+          if (!receipts.length) return "ignored";
+          await tx
+            .update(runtimeSessions)
+            .set({ environmentStatus: event.status })
+            .where(eq(runtimeSessions.id, run.sessionId));
+          await appendEvent(tx, run.conversationId, "environment.updated", run.id, {
+            status: event.status,
+          });
+          return "applied";
+        }
         if (event.type === "session.status") return "ignored";
         if (event.type === "turn.status") {
           if (

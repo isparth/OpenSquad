@@ -1,4 +1,9 @@
-import type { ConversationEventType, MessageContentPart, RuntimeMessage } from "@opensquad/core";
+import type {
+  ConversationEventType,
+  EnvironmentStatus,
+  MessageContentPart,
+  RuntimeMessage,
+} from "@opensquad/core";
 import { sql } from "drizzle-orm";
 import {
   bigint,
@@ -93,11 +98,16 @@ export const runtimeSessions = pgTable(
     environment: text("environment", { enum: ["hosted", "none"] })
       .notNull()
       .default("hosted"),
+    environmentStatus: text("environment_status").$type<EnvironmentStatus>(),
   },
   (table) => [
     uniqueIndex("runtime_sessions_conversation_idx").on(table.conversationId),
     uniqueIndex("runtime_sessions_external_idx").on(table.provider, table.externalId),
     check("runtime_sessions_environment_check", sql`${table.environment} in ('hosted', 'none')`),
+    check(
+      "runtime_sessions_environment_status_check",
+      sql`${table.environmentStatus} in ('pending', 'ready', 'connected', 'disconnected', 'reset')`,
+    ),
   ],
 );
 

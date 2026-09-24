@@ -336,12 +336,23 @@ describe("OpenAIAgentsProvider", () => {
     expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
 
-  it("retrieves all message pages and ignores non-message items", async () => {
+  it("retrieves command items from every message page and ignores other items", async () => {
     const { runtime, fetch } = setup();
+    const command = {
+      id: "exec_123",
+      type: "command_execution",
+      turn_id: turn.id,
+      command: '/bin/bash -lc "cat /workspace/outputs/hello.txt"',
+      cwd: "/workspace",
+      status: "completed",
+      output: "hi",
+      exit_code: 0,
+      duration_ms: 0,
+    };
     fetch
       .mockResolvedValueOnce(
         json({
-          data: [message, { id: "tool_123", type: "mcp_call" }],
+          data: [message, command, { id: "tool_123", type: "mcp_call" }],
           has_more: true,
           last_id: "tool_123",
         }),
@@ -350,10 +361,50 @@ describe("OpenAIAgentsProvider", () => {
         json({ data: [{ ...message, id: "msg_456" }], has_more: false, last_id: "msg_456" }),
       );
     const messages = await collect(runtime.listMessages(session, credentials));
-    expect(messages.map((m) => m.externalId)).toEqual(["msg_123", "msg_456"]);
+    expect(messages.map((m) => m.externalId)).toEqual(["msg_123", "exec_123", "msg_456"]);
+    expect(messages[1]).toMatchObject({
+      role: "assistant",
+      phase: null,
+      status: "completed",
+      content: [
+        {
+          type: "command",
+          command: '/bin/bash -lc "cat /workspace/outputs/hello.txt"',
+          cwd: "/workspace",
+          output: "hi",
+          exitCode: 0,
+          durationMs: 0,
+          outputTruncated: false,
+        },
+      ],
+    });
     const url = new URL(String(fetch.mock.calls[1]?.[0]));
     expect(url.searchParams.get("after")).toBe("tool_123");
     expect(url.searchParams.get("order")).toBe("asc");
+  });
+
+  it("skips malformed command items and continues saved-message pagination", async () => {
+    const { runtime, fetch } = setup();
+    const malformedCommand = {
+      id: "exec_malformed",
+      type: "command_execution",
+      turn_id: turn.id,
+      cwd: "/workspace",
+      status: "completed",
+      output: "unavailable",
+      exit_code: 1,
+      duration_ms: 0,
+    };
+    fetch.mockResolvedValueOnce(
+      json({
+        data: [malformedCommand, { ...message, id: "msg_after_malformed_command" }],
+        has_more: false,
+        last_id: "msg_after_malformed_command",
+      }),
+    );
+
+    const messages = await collect(runtime.listMessages(session, credentials));
+    expect(messages.map((entry) => entry.externalId)).toEqual(["msg_after_malformed_command"]);
   });
 
   it("retrieves saved turn outcomes for recovery", async () => {

@@ -59,6 +59,7 @@ function snapshot(overrides = {}) {
     activeRun: null,
     latestMessages: [msg()],
     nextMessageCursor: "cur-1",
+    environment: null,
     ...overrides,
   };
 }
@@ -75,6 +76,35 @@ describe("thread state", () => {
     expect(state.participants).toEqual([participant]);
     expect(state.messages.map((m) => m.id)).toEqual(["m-2", "m-10"]);
     expect(state.nextMessageCursor).toBe("cur-1");
+  });
+
+  it("keeps sandbox environment status from snapshots and environment updates", () => {
+    expect(
+      applyEvent(emptyThread, { type: "environment.updated", payload: { status: "pending" } })
+        .environment,
+    ).toEqual({ type: "hosted", status: "pending" });
+    const hosted = { type: "hosted", status: "pending" } as const;
+    const state = applyEvent(emptyThread, {
+      type: "conversation.snapshot",
+      payload: snapshot({ environment: hosted }),
+    });
+    expect(state.environment).toEqual(hosted);
+    const ready = applyEvent(state, { type: "environment.updated", payload: { status: "ready" } });
+    expect(ready.environment).toEqual({ type: "hosted", status: "ready" });
+    const reset = applyEvent(ready, {
+      type: "environment.updated",
+      payload: { status: "reset" },
+    });
+    expect(reset.environment).toEqual({ type: "hosted", status: "reset" });
+    expect(applyEvent(reset, { type: "environment.updated", payload: { status: "unknown" } })).toBe(
+      reset,
+    );
+    expect(
+      applyEvent(emptyThread, {
+        type: "conversation.snapshot",
+        payload: snapshot({ environment: { type: "other", status: "ready" } }),
+      }),
+    ).toBe(emptyThread);
   });
 
   it("clears lastRun when the snapshot has an active run and keeps it otherwise", () => {

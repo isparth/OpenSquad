@@ -75,6 +75,17 @@ const messageSchema = z.object({
     ]),
   ),
 });
+const commandExecutionSchema = z.object({
+  type: z.literal("command_execution"),
+  id,
+  turn_id: id,
+  command: z.string(),
+  cwd: z.string().nullable(),
+  status: z.string(),
+  output: z.string().nullable(),
+  exit_code: z.number().int().nullable(),
+  duration_ms: z.number().nonnegative().nullable(),
+});
 const eventSchema = z.looseObject({ type: z.string() });
 const scopedEventSchema = z.object({
   event_id: id,
@@ -101,6 +112,17 @@ export const pageSchema = z.object({
   has_more: z.boolean(),
   last_id: id.nullable(),
 });
+
+export const COMMAND_OUTPUT_LIMIT = 16_384;
+const COMMAND_OUTPUT_TRUNCATION_MARKER = "\n… output truncated …\n";
+
+function capCommandOutput(output: string): { output: string; outputTruncated: boolean } {
+  if (output.length <= COMMAND_OUTPUT_LIMIT) return { output, outputTruncated: false };
+  return {
+    output: `${output.slice(0, 8_000)}${COMMAND_OUTPUT_TRUNCATION_MARKER}${output.slice(-8_000)}`,
+    outputTruncated: true,
+  };
+}
 
 export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);
@@ -136,6 +158,34 @@ export function normalizeTurn(input: unknown): RuntimeTurn {
 
 export function normalizeMessage(input: unknown): RuntimeMessage | null {
   const item = parse(z.looseObject({ type: z.string() }), input);
+  if (item.type === "command_execution") {
+    const result = commandExecutionSchema.safeParse(input);
+    if (!result.success) return null;
+    const command = result.data;
+    const cappedOutput = capCommandOutput(command.output ?? "");
+    return {
+      externalId: command.id,
+      turnExternalId: command.turn_id,
+      role: "assistant",
+      phase: null,
+      status:
+        command.status === "in_progress"
+          ? "running"
+          : command.status === "completed"
+            ? "completed"
+            : "incomplete",
+      content: [
+        {
+          type: "command",
+          command: command.command,
+          cwd: command.cwd,
+          exitCode: command.exit_code,
+          durationMs: command.duration_ms,
+          ...cappedOutput,
+        },
+      ],
+    };
+  }
   if (item.type !== "message") return null;
   const message = parse(messageSchema, input);
   return {
@@ -194,10 +244,26 @@ export function normalizeEvent(input: unknown): RuntimeEvent | null {
         text: parse(z.string(), delta ? part.delta : part.text),
       };
     }
+    case "agent.session.turn.item.added": {
+      const { item } = parse(z.object({ item: z.looseObject({ type: z.string() }) }), event);
+      if (item.type !== "command_execution") return null;
+      const message = normalizeMessage(item);
+      return message ? { ...eventBase(event), type: "message.completed", message } : null;
+    }
     case "agent.session.turn.item.done": {
       const message = normalizeMessage(event.item);
       return message ? { ...eventBase(event), type: "message.completed", message } : null;
     }
+    case "agent.session.environment.pending":
+      return { ...eventBase(event), type: "environment.status", status: "pending" };
+    case "agent.session.environment.ready":
+      return { ...eventBase(event), type: "environment.status", status: "ready" };
+    case "agent.session.environment.connected":
+      return { ...eventBase(event), type: "environment.status", status: "connected" };
+    case "agent.session.environment.disconnected":
+      return { ...eventBase(event), type: "environment.status", status: "disconnected" };
+    case "agent.session.environment.reset":
+      return { ...eventBase(event), type: "environment.status", status: "reset" };
     case "agent.session.environment.failed": {
       const environment = parse(z.object({ error: errorSchema.nullable() }), event.environment);
       return {

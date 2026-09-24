@@ -60,6 +60,26 @@ function userMessage(sequence = "1"): ConversationMessage {
   };
 }
 
+function assistantMessage(
+  id: string,
+  sequence: string,
+  phase: ConversationMessage["phase"],
+  content: ConversationMessage["content"],
+): ConversationMessage {
+  return {
+    id,
+    conversationId: "c-1",
+    participantId: "p-agent",
+    runId: "r-1",
+    sequence,
+    role: "assistant",
+    content,
+    phase,
+    status: "completed",
+    createdAt: "2026-09-15T00:00:00.000Z",
+  };
+}
+
 function run(overrides: Partial<ConversationRun> = {}): ConversationRun {
   return {
     id: "r-1",
@@ -86,6 +106,7 @@ function snapshot(overrides = {}) {
     activeRun: null,
     latestMessages: [],
     nextMessageCursor: null,
+    environment: null,
     ...overrides,
   };
 }
@@ -342,6 +363,76 @@ describe("chat view", () => {
     source.emit("run.updated", { run: run({ active: false, status: "succeeded" }) });
     expect(screen.getByText("Hi there!")).toBeInTheDocument();
     expect(box).toBeEnabled();
+  });
+
+  it("renders command content in the thread", async () => {
+    renderChat();
+    const source = await selectConversation();
+    const command = {
+      index: 0,
+      completed: true,
+      type: "command" as const,
+      command: '/bin/bash -lc "cat /workspace/outputs/hello.txt"',
+      cwd: "/workspace",
+      exitCode: 0,
+      durationMs: 0,
+      output: "hi",
+      outputTruncated: false,
+    };
+    source.emit(
+      "conversation.snapshot",
+      snapshot({ latestMessages: [assistantMessage("m-command", "2", null, [command])] }),
+    );
+
+    expect(screen.getByText("Ran")).toBeInTheDocument();
+    expect(
+      screen.getByText("cat /workspace/outputs/hello.txt", { selector: "code" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show output" })).toBeInTheDocument();
+  });
+
+  it("renders commentary as a muted progress note", async () => {
+    renderChat();
+    const source = await selectConversation();
+    source.emit(
+      "conversation.snapshot",
+      snapshot({
+        latestMessages: [
+          assistantMessage("m-commentary", "2", "commentary", [
+            { index: 0, type: "text", text: "I am checking the file.", completed: true },
+          ]),
+        ],
+      }),
+    );
+    const text = screen.getByText("I am checking the file.");
+    expect(text.closest(".chat-message")).toHaveClass("commentary");
+  });
+
+  it("shows sandbox startup and reset notices from snapshot and environment events", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (new URL(url).pathname === `/agents/${agent.id}`)
+        return Promise.resolve(Response.json({ ...agent, sandboxEnabled: true }));
+      return routedFetch(input);
+    });
+    renderChat();
+    const source = await selectConversation();
+    source.emit("conversation.snapshot", snapshot({ activeRun: run(), environment: null }));
+    expect(await screen.findByText("Starting sandbox…")).toBeInTheDocument();
+
+    source.emit("environment.updated", { status: "ready" });
+    await waitFor(() => expect(screen.queryByText("Starting sandbox…")).not.toBeInTheDocument());
+    source.emit("environment.updated", { status: "reset" });
+    expect(
+      screen.getByText("The sandbox was restarted; files from earlier turns are gone."),
+    ).toBeInTheDocument();
+    source.emit("environment.updated", { status: "connected" });
+    await waitFor(() =>
+      expect(
+        screen.queryByText("The sandbox was restarted; files from earlier turns are gone."),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Starting sandbox…")).not.toBeInTheDocument();
   });
 
   it("keeps Shift+Enter as a newline and only sends on Enter", async () => {

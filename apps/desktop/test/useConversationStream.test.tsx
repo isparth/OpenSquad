@@ -21,6 +21,7 @@ const snapshot = {
   activeRun: null,
   latestMessages: [message],
   nextMessageCursor: "cur-1",
+  environment: null,
 };
 
 async function latestSource() {

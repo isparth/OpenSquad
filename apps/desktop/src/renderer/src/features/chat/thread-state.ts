@@ -5,6 +5,7 @@ import type {
   ConversationRunStatus,
   ConversationSnapshot,
   ConversationSummary,
+  EnvironmentStatus,
   MessageContentPart,
 } from "@opensquad/core";
 
@@ -15,6 +16,7 @@ export interface ThreadState {
   activeRun: ConversationRun | null;
   lastRun: ConversationRun | null;
   nextMessageCursor: string | null;
+  environment: ConversationSnapshot["environment"];
 }
 
 export const emptyThread: ThreadState = {
@@ -24,6 +26,7 @@ export const emptyThread: ThreadState = {
   activeRun: null,
   lastRun: null,
   nextMessageCursor: null,
+  environment: null,
 };
 
 export type ThreadEvent = { type: string; payload: unknown };
@@ -38,6 +41,13 @@ const RUN_STATUSES: ReadonlySet<string> = new Set([
   "cancelled",
 ]);
 const MESSAGE_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "incomplete"]);
+const ENVIRONMENT_STATUSES: ReadonlySet<string> = new Set([
+  "pending",
+  "ready",
+  "connected",
+  "disconnected",
+  "reset",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -47,12 +57,36 @@ function isSequence(value: unknown): value is string {
   return typeof value === "string" && /^\d+$/.test(value);
 }
 
+function isEnvironmentStatus(value: unknown): value is EnvironmentStatus {
+  return typeof value === "string" && ENVIRONMENT_STATUSES.has(value);
+}
+
+function isEnvironment(value: unknown): value is ConversationSnapshot["environment"] {
+  if (value === null) return true;
+  return (
+    isRecord(value) &&
+    (value.type === "hosted" || value.type === "none") &&
+    (value.status === null || isEnvironmentStatus(value.status))
+  );
+}
+
 function isContentPart(value: unknown): value is MessageContentPart {
   if (!isRecord(value)) return false;
   if (!Number.isInteger(value.index) || typeof value.completed !== "boolean") return false;
   return (
     (value.type === "text" && typeof value.text === "string") ||
-    (value.type === "image" && typeof value.url === "string")
+    (value.type === "image" && typeof value.url === "string") ||
+    (value.type === "command" &&
+      typeof value.command === "string" &&
+      (value.cwd === null || typeof value.cwd === "string") &&
+      (value.exitCode === null ||
+        (typeof value.exitCode === "number" && Number.isInteger(value.exitCode))) &&
+      (value.durationMs === null ||
+        (typeof value.durationMs === "number" &&
+          Number.isFinite(value.durationMs) &&
+          value.durationMs >= 0)) &&
+      typeof value.output === "string" &&
+      typeof value.outputTruncated === "boolean")
   );
 }
 
@@ -132,7 +166,8 @@ function isSnapshot(value: unknown): value is ConversationSnapshot {
     Array.isArray(value.latestMessages) &&
     value.latestMessages.every(isMessage) &&
     (value.activeRun === null || isRun(value.activeRun)) &&
-    (value.nextMessageCursor === null || typeof value.nextMessageCursor === "string")
+    (value.nextMessageCursor === null || typeof value.nextMessageCursor === "string") &&
+    isEnvironment(value.environment)
   );
 }
 
@@ -233,6 +268,7 @@ export function applyEvent(state: ThreadState, event: ThreadEvent): ThreadState 
         activeRun: payload.activeRun,
         lastRun: payload.activeRun ? null : state.lastRun,
         nextMessageCursor: payload.nextMessageCursor,
+        environment: payload.environment,
       };
     }
     case "message.created": {
@@ -256,6 +292,11 @@ export function applyEvent(state: ThreadState, event: ThreadEvent): ThreadState 
         ...state,
         messages: upsertMessage(state.messages, payload.message, () => true),
       };
+    }
+    case "environment.updated": {
+      if (!isRecord(payload) || !isEnvironmentStatus(payload.status)) return state;
+      const environment = state.environment ?? { type: "hosted" as const, status: null };
+      return { ...state, environment: { ...environment, status: payload.status } };
     }
     case "run.updated": {
       if (!isRecord(payload) || !isRun(payload.run)) return state;

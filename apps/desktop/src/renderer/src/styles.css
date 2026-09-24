@@ -914,6 +914,73 @@ input[type="file"]::file-selector-button {
 .chat-message.user .chat-bubble {
   background: var(--accent-soft);
 }
+.chat-message.commentary {
+  max-width: 100%;
+}
+.chat-message.commentary .chat-author,
+.chat-commentary {
+  color: var(--muted);
+  font-size: 12px;
+}
+.chat-commentary {
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.command-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.command-row-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.command-row-action {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.command-row-command {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-row-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.command-row-status.danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+.command-row-output pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.command-row-output p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
 .chat-status-bar {
   padding: 4px 16px;
   min-height: 24px;

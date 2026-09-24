@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { RuntimeEvent, RuntimeMessage, RuntimeTurn } from "@opensquad/core";
-import { agents, conversationRuns, conversations } from "@opensquad/db";
-import { eq } from "drizzle-orm";
+import {
+  agents,
+  conversationEvents,
+  conversationRuns,
+  conversations,
+  participants,
+  runtimeSessions,
+} from "@opensquad/db";
+import { and, asc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { App } from "../src/app.js";
 import { agentsService } from "../src/modules/agents/service.js";
@@ -347,6 +354,192 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     );
   });
 
+  it("persists command messages in order with commentary and final assistant messages", async () => {
+    await setSandboxEnabled(true);
+    const cappedOutput = `${"a".repeat(8_000)}\n… output truncated …\n${"b".repeat(8_000)}`;
+    const commandPart = {
+      type: "command" as const,
+      command: "/bin/bash -lc \"printf 'hi'\"",
+      cwd: "/workspace",
+      exitCode: 0,
+      durationMs: 400,
+      output: cappedOutput,
+      outputTruncated: true,
+    };
+    runtime.sendInput.mockImplementation(async () => {
+      queue.emit(turn("running"));
+      queue.emit({
+        type: "message.completed",
+        externalId: "command-added-event",
+        sessionExternalId: session.externalId,
+        turnExternalId: "root-test",
+        message: {
+          externalId: "exec_123",
+          turnExternalId: "root-test",
+          role: "assistant",
+          status: "running",
+          phase: null,
+          content: [commandPart],
+        },
+      });
+      queue.emit({
+        type: "message.completed",
+        externalId: "command-done-event",
+        sessionExternalId: session.externalId,
+        turnExternalId: "root-test",
+        message: {
+          externalId: "exec_123",
+          turnExternalId: "root-test",
+          role: "assistant",
+          status: "completed",
+          phase: null,
+          content: [commandPart],
+        },
+      });
+      queue.emit({
+        type: "message.completed",
+        externalId: "commentary-event",
+        sessionExternalId: session.externalId,
+        turnExternalId: "root-test",
+        message: {
+          externalId: "commentary_123",
+          turnExternalId: "root-test",
+          role: "assistant",
+          status: "completed",
+          phase: "commentary",
+          content: [{ type: "text", text: "I am checking the file." }],
+        },
+      });
+      queue.emit({
+        type: "message.completed",
+        externalId: "final-event",
+        sessionExternalId: session.externalId,
+        turnExternalId: "root-test",
+        message: {
+          externalId: "final_123",
+          turnExternalId: "root-test",
+          role: "assistant",
+          status: "completed",
+          phase: "final",
+          content: [{ type: "text", text: "The file contains hi." }],
+        },
+      });
+      queue.emit(turn("succeeded"));
+    });
+
+    const response = await send();
+    expect(response.statusCode).toBe(202);
+    await waitStatus(response.json().run.id, "succeeded");
+    const history = (
+      await app.inject({ method: "GET", url: `/conversations/${conversationId}/messages` })
+    ).json().items;
+    const assistant = history.filter((message: { role: string }) => message.role === "assistant");
+    expect(
+      assistant.map((message: { content: Array<{ type: string }> }) => message.content[0]?.type),
+    ).toEqual(["command", "text", "text"]);
+    expect(assistant.map((message: { sequence: string }) => message.sequence)).toEqual([
+      "2",
+      "3",
+      "4",
+    ]);
+    expect(assistant[0]?.content[0]).toMatchObject({ ...commandPart, index: 0, completed: true });
+    expect(assistant[1]).toMatchObject({ phase: "commentary" });
+    expect(assistant[2]).toMatchObject({ phase: "final" });
+
+    const productEvents = await app.db
+      .select()
+      .from(conversationEvents)
+      .where(eq(conversationEvents.conversationId, conversationId))
+      .orderBy(asc(conversationEvents.sequence));
+    const commandEvents = productEvents.filter((event) => {
+      const payload = event.payload as { message?: { content?: Array<{ type?: string }> } };
+      return payload.message?.content?.some((part) => part.type === "command");
+    });
+    expect(commandEvents.map((event) => event.type)).toEqual([
+      "message.created",
+      "message.completed",
+      "message.completed",
+    ]);
+  });
+
+  it("applies and deduplicates environment events before the root turn is known", async () => {
+    await setSandboxEnabled(true);
+    const readyEvent: RuntimeEvent = {
+      type: "environment.status",
+      externalId: "environment-ready-event",
+      sessionExternalId: session.externalId,
+      turnExternalId: null,
+      status: "ready",
+    };
+    runtime.sendInput.mockImplementation(async () => {
+      queue.emit(readyEvent);
+      queue.emit(readyEvent);
+      queue.emit({ ...readyEvent, externalId: "environment-connected-event", status: "connected" });
+      queue.emit(turn("running"));
+      queue.emit(turn("succeeded"));
+    });
+
+    const response = await send();
+    expect(response.statusCode).toBe(202);
+    await waitStatus(response.json().run.id, "succeeded");
+    const [savedSession] = await app.db
+      .select()
+      .from(runtimeSessions)
+      .where(eq(runtimeSessions.conversationId, conversationId));
+    expect(savedSession?.environmentStatus).toBe("connected");
+
+    const events = await app.db
+      .select()
+      .from(conversationEvents)
+      .where(eq(conversationEvents.conversationId, conversationId))
+      .orderBy(asc(conversationEvents.sequence));
+    const environmentEvents = events.filter((event) => event.type === "environment.updated");
+    expect(environmentEvents.map((event) => event.payload.status)).toEqual(["ready", "connected"]);
+    const rootRunning = events.find((event) => {
+      if (event.type !== "run.updated") return false;
+      const payload = event.payload as { run?: { status?: string } };
+      return payload.run?.status === "running";
+    });
+    expect(environmentEvents[0]?.sequence).toBeLessThan(rootRunning?.sequence ?? 0n);
+  });
+
+  it("snapshots hosted, environmentless, and absent runtime environments", async () => {
+    const service = conversationsService(app.db);
+    expect((await service.snapshot("dev-user", conversationId)).snapshot.environment).toBeNull();
+    const [agentParticipant] = await app.db
+      .select()
+      .from(participants)
+      .where(and(eq(participants.conversationId, conversationId), eq(participants.kind, "agent")));
+    if (!agentParticipant) throw new Error("Expected an agent participant");
+    const [runtimeSession] = await app.db
+      .insert(runtimeSessions)
+      .values({
+        conversationId,
+        agentParticipantId: agentParticipant.id,
+        provider: runtime.name,
+        externalId: `snapshot-${randomUUID()}`,
+        instructions: "",
+        memorySnapshot: "",
+        model: "gpt-6-luna",
+        environment: "hosted",
+        environmentStatus: "ready",
+      })
+      .returning();
+    if (!runtimeSession) throw new Error("Expected a runtime session");
+    expect((await service.snapshot("dev-user", conversationId)).snapshot.environment).toEqual({
+      type: "hosted",
+      status: "ready",
+    });
+    await app.db
+      .update(runtimeSessions)
+      .set({ environment: "none", environmentStatus: null })
+      .where(eq(runtimeSessions.id, runtimeSession.id));
+    expect((await service.snapshot("dev-user", conversationId)).snapshot.environment).toEqual({
+      type: "none",
+      status: null,
+    });
+  });
+
   it("rejects sandbox drift after a completed environmentless conversation", async () => {
     runtime.listTurns.mockImplementation(async function* () {
       yield root("succeeded");
@@ -625,6 +818,24 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     });
     runtime.listMessages.mockImplementation(async function* () {
       yield {
+        externalId: "saved-command",
+        turnExternalId: "root-test",
+        role: "assistant",
+        status: "completed",
+        phase: null,
+        content: [
+          {
+            type: "command",
+            command: '/bin/bash -lc "cat /workspace/outputs/hello.txt"',
+            cwd: "/workspace",
+            exitCode: 0,
+            durationMs: 0,
+            output: "hi",
+            outputTruncated: false,
+          },
+        ],
+      };
+      yield {
         externalId: "saved-item",
         turnExternalId: "root-test",
         role: "assistant",
@@ -647,6 +858,11 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
           message.content[0]?.text === "Recovered reply",
       ),
     ).toBe(true);
+    expect(
+      history
+        .filter((message: { role: string }) => message.role === "assistant")
+        .map((message: { content: Array<{ type: string }> }) => message.content[0]?.type),
+    ).toEqual(["command", "text"]);
     expect((await app.inject({ method: "GET", url: `/runs/${id}` })).json().run.error).toBeNull();
   });
 });
