@@ -43,6 +43,7 @@ describe("durable run admission", () => {
       mcp: false,
       subagents: false,
       steering: false,
+      artifacts: false,
     },
   };
 

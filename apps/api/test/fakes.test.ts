@@ -20,6 +20,7 @@ async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
 describe("FakeRuntimeProvider", () => {
   it("fails closed for every unconfigured operation", async () => {
     const runtime = new FakeRuntimeProvider();
+    expect(runtime.features.artifacts).toBe(false);
     const calls = {
       createSession: () => runtime.createSession({ instructions: "Test" }, credentials),
       retrieveSession: () => runtime.retrieveSession(session, credentials),
@@ -27,6 +28,9 @@ describe("FakeRuntimeProvider", () => {
       events: () => runtime.events(session, credentials),
       listMessages: () => collect(runtime.listMessages(session, credentials)),
       listTurns: () => collect(runtime.listTurns(session, credentials)),
+      listArtifacts: () => collect(runtime.listArtifacts(session, credentials)),
+      readArtifact: async () =>
+        runtime.readArtifact(session, "artifact-test", credentials, { maxBytes: 10 }),
       cancel: () => runtime.cancel(session, credentials),
       destroySession: () => runtime.destroySession(session, credentials),
     };

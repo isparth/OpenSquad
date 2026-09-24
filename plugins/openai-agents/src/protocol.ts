@@ -1,4 +1,10 @@
-import type { RuntimeEvent, RuntimeMessage, RuntimeSession, RuntimeTurn } from "@opensquad/core";
+import type {
+  RuntimeArtifact,
+  RuntimeEvent,
+  RuntimeMessage,
+  RuntimeSession,
+  RuntimeTurn,
+} from "@opensquad/core";
 import { z } from "zod";
 
 const id = z.string().min(1);
@@ -86,6 +92,17 @@ const commandExecutionSchema = z.object({
   exit_code: z.number().int().nullable(),
   duration_ms: z.number().nonnegative().nullable(),
 });
+const artifactId = z.string().regex(/^[a-zA-Z0-9_-]+$/);
+const artifactSchema = z.object({
+  id: artifactId,
+  object: z.literal("agent.session.artifact"),
+  session_id: id,
+  environment_id: id,
+  turn_id: id,
+  path: z.string(),
+  size_bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  created_at: z.number().finite().nonnegative().max(8_640_000_000_000),
+});
 const eventSchema = z.looseObject({ type: z.string() });
 const scopedEventSchema = z.object({
   event_id: id,
@@ -128,6 +145,34 @@ export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) throw new Error("openai-agents: Invalid Agents API response");
   return result.data;
+}
+
+const outputPathPrefix = "/workspace/outputs/";
+
+export function normalizeArtifact(
+  input: unknown,
+  sessionExternalId: string,
+): RuntimeArtifact | null {
+  const result = artifactSchema.safeParse(input);
+  if (!result.success) return null;
+  const artifact = result.data;
+  if (artifact.session_id !== sessionExternalId)
+    throw new Error("openai-agents: Artifact session mismatch");
+  if (
+    !artifact.path.startsWith(outputPathPrefix) ||
+    artifact.path.includes("\0") ||
+    artifact.path.split("/").includes("..") ||
+    artifact.path.length === outputPathPrefix.length
+  ) {
+    return null;
+  }
+  return {
+    externalId: artifact.id,
+    turnExternalId: artifact.turn_id,
+    path: artifact.path,
+    sizeBytes: artifact.size_bytes,
+    createdAt: new Date(artifact.created_at * 1000).toISOString(),
+  };
 }
 
 export function normalizeSession(input: unknown): RuntimeSession {

@@ -1,5 +1,6 @@
 import type {
   ConversationEventType,
+  ConversationFileStatus,
   EnvironmentStatus,
   MessageContentPart,
   RuntimeMessage,
@@ -44,6 +45,11 @@ export const runPhase = pgEnum("run_phase", [
   "cancelling",
   "uncertain",
   "finished",
+]);
+export const conversationFileStatus = pgEnum("conversation_file_status", [
+  "stored",
+  "too_large",
+  "failed",
 ]);
 
 export const conversations = pgTable(
@@ -184,6 +190,38 @@ export const conversationMessages = pgTable(
   ],
 );
 
+export const conversationFiles = pgTable(
+  "conversation_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => conversationRuns.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => runtimeSessions.id, { onDelete: "cascade" }),
+    externalArtifactId: text("external_artifact_id").notNull(),
+    turnExternalId: text("turn_external_id").notNull(),
+    path: text("path").notNull(),
+    name: text("name").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    contentType: text("content_type").notNull(),
+    storageKey: text("storage_key"),
+    status: conversationFileStatus("status").$type<ConversationFileStatus>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("conversation_files_session_artifact_idx").on(
+      table.sessionId,
+      table.externalArtifactId,
+    ),
+    index("conversation_files_conversation_time_idx").on(table.conversationId, table.createdAt),
+  ],
+);
+
 export const conversationEvents = pgTable(
   "conversation_events",
   {
@@ -220,5 +258,6 @@ export type ConversationRow = typeof conversations.$inferSelect;
 export type ParticipantRow = typeof participants.$inferSelect;
 export type ConversationRunRow = typeof conversationRuns.$inferSelect;
 export type ConversationMessageRow = typeof conversationMessages.$inferSelect;
+export type ConversationFileRow = typeof conversationFiles.$inferSelect;
 export type RuntimeSessionRow = typeof runtimeSessions.$inferSelect;
 export type ConversationEventRow = typeof conversationEvents.$inferSelect;

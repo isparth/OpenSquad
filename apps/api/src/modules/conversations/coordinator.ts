@@ -1,6 +1,7 @@
-import type { AgentRuntimeProvider, RuntimeCredentials } from "@opensquad/core";
+import type { AgentRuntimeProvider, RuntimeCredentials, StorageProvider } from "@opensquad/core";
 import type { Database } from "@opensquad/db";
 import { ConversationError } from "./dto.js";
+import { collectRunFiles, type FileCollectionOptions } from "./file-collection.js";
 import { runtimeStore } from "./run-store.js";
 import { executeRun } from "./run-worker.js";
 import type { UsageBackfillOptions } from "./turn-usage.js";
@@ -9,8 +10,10 @@ import { backfillRunUsage } from "./usage-backfill.js";
 export function runCoordinator(
   db: Database,
   runtime: AgentRuntimeProvider,
+  storage: StorageProvider,
   reportFailure: () => void,
   usageBackfill: UsageBackfillOptions,
+  fileCollection: FileCollectionOptions = {},
 ) {
   const jobs = new Map<string, { controller: AbortController; work: Promise<void> }>();
   const starts = new Set<Promise<void>>();
@@ -40,17 +43,29 @@ export function runCoordinator(
       signal: controller.signal,
       mode,
     })
-      .then(() =>
-        backfillRunUsage(
-          db,
-          runtime,
-          ownerId,
-          runId,
-          credentials,
-          controller.signal,
-          usageBackfill,
-        ),
-      )
+      .then(async () => {
+        await Promise.allSettled([
+          backfillRunUsage(
+            db,
+            runtime,
+            ownerId,
+            runId,
+            credentials,
+            controller.signal,
+            usageBackfill,
+          ),
+          collectRunFiles(
+            db,
+            runtime,
+            storage,
+            ownerId,
+            runId,
+            credentials,
+            controller.signal,
+            fileCollection,
+          ),
+        ]);
+      })
       .catch(reportFailure)
       .finally(() => jobs.delete(runId));
     jobs.set(runId, { controller, work });

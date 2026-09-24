@@ -1,6 +1,7 @@
 import type {
   AgentRuntimeProvider,
   CreateRuntimeSessionOptions,
+  RuntimeArtifact,
   RuntimeCredentials,
   RuntimeEventStream,
   RuntimeMessage,
@@ -14,6 +15,7 @@ import type { Stream } from "openai/core/streaming";
 import { z } from "zod";
 import {
   isTerminal,
+  normalizeArtifact,
   normalizeEvent,
   normalizeMessage,
   normalizeSession,
@@ -82,6 +84,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
     mcp: true,
     subagents: true,
     steering: true,
+    artifacts: true,
   });
   readonly #defaultModel: string;
   readonly #fetch: typeof globalThis.fetch | undefined;
@@ -95,14 +98,19 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
     this.#fetch = options.fetch;
   }
 
-  #client(credentials: RuntimeCredentials, streaming = false): OpenAI {
+  #client(
+    credentials: RuntimeCredentials,
+    streaming = false,
+    timeoutMs = 60_000,
+    accept?: string,
+  ): OpenAI {
     const apiKey = credentials.apiKey;
     if (!apiKey.trim()) throw new Error("openai-agents: An API key is required");
     const headers = {
       Authorization: `Bearer ${apiKey}`,
       "OpenAI-Beta": "agents=v1",
       "Content-Type": "application/json",
-      Accept: streaming ? "text/event-stream" : "application/json",
+      Accept: accept ?? (streaming ? "text/event-stream" : "application/json"),
     };
     return new OpenAI({
       apiKey,
@@ -111,7 +119,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
       project: null,
       defaultHeaders: headers,
       maxRetries: 0,
-      timeout: 60_000,
+      timeout: timeoutMs,
       logLevel: "off",
       fetch: (url, init) =>
         (this.#fetch ?? globalThis.fetch)(url, {
@@ -318,7 +326,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
 
   async *#pages(
     session: RuntimeSessionRef,
-    resource: "items" | "turns",
+    resource: "items" | "turns" | "artifacts",
     credentials: RuntimeCredentials,
     request: RuntimeRequestOptions,
   ): AsyncIterable<unknown> {
@@ -361,6 +369,112 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
   ): AsyncIterable<RuntimeTurn> {
     for await (const turn of this.#pages(session, "turns", credentials, request))
       yield normalizeTurn(turn);
+  }
+
+  async *listArtifacts(
+    session: RuntimeSessionRef,
+    credentials: RuntimeCredentials,
+    request: RuntimeRequestOptions = {},
+  ): AsyncIterable<RuntimeArtifact> {
+    for await (const item of this.#pages(session, "artifacts", credentials, request)) {
+      const artifact = normalizeArtifact(item, session.externalId);
+      if (artifact) yield artifact;
+    }
+  }
+
+  async readArtifact(
+    session: RuntimeSessionRef,
+    artifactExternalId: string,
+    credentials: RuntimeCredentials,
+    options: { maxBytes: number; signal?: AbortSignal },
+  ): Promise<Uint8Array> {
+    const sessionPath = this.#path(session);
+    if (!/^[a-zA-Z0-9_-]+$/.test(artifactExternalId)) {
+      throw new Error("openai-agents: Invalid Artifact ID");
+    }
+    if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) {
+      throw new Error("openai-agents: Invalid artifact size limit");
+    }
+
+    const controller = new AbortController();
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal;
+    const deadlineMs = 120_000;
+    const timeout = setTimeout(() => controller.abort(), deadlineMs);
+    let onAbort = () => {};
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new Error("openai-agents: Request failed or was aborted"));
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+
+    try {
+      if (signal.aborted) onAbort();
+      const response = await Promise.race([
+        aborted,
+        Promise.resolve().then(() =>
+          this.#client(credentials, false, deadlineMs, "application/octet-stream")
+            .get<unknown>(
+              `${sessionPath}/artifacts/${encodeURIComponent(artifactExternalId)}/content`,
+              {
+                query: { session_id: session.externalId },
+                signal,
+                timeout: deadlineMs,
+              },
+            )
+            .asResponse(),
+        ),
+      ]);
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
+        throw new Error(`openai-agents: Artifact request failed (HTTP ${response.status})`);
+      }
+      const contentLength = response.headers.get("content-length");
+      if (
+        contentLength &&
+        /^\d+$/.test(contentLength) &&
+        Number(contentLength) > options.maxBytes
+      ) {
+        await response.body?.cancel().catch(() => {});
+        controller.abort();
+        throw new Error("openai-agents: Artifact exceeds size limit");
+      }
+      if (!response.body) return new Uint8Array();
+
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      try {
+        while (true) {
+          const { done, value } = await Promise.race([reader.read(), aborted]);
+          if (done) break;
+          size += value.byteLength;
+          if (size > options.maxBytes) {
+            controller.abort();
+            await reader.cancel().catch(() => {});
+            throw new Error("openai-agents: Artifact exceeds size limit");
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return bytes;
+    } catch (error) {
+      controller.abort();
+      if (error instanceof Error && error.message === "openai-agents: Artifact exceeds size limit")
+        throw error;
+      throw requestError(error);
+    } finally {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 
   async cancel(

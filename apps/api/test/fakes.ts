@@ -14,6 +14,7 @@ export class FakeRuntimeProvider implements AgentRuntimeProvider {
     mcp: false,
     subagents: false,
     steering: false,
+    artifacts: false,
   };
 
   readonly createSession = vi.fn<AgentRuntimeProvider["createSession"]>(async () =>
@@ -32,6 +33,12 @@ export class FakeRuntimeProvider implements AgentRuntimeProvider {
   readonly listTurns = vi.fn<AgentRuntimeProvider["listTurns"]>(async function* () {
     yield unconfigured("listTurns");
   });
+  readonly listArtifacts = vi.fn<AgentRuntimeProvider["listArtifacts"]>(async function* () {
+    yield unconfigured("listArtifacts");
+  });
+  readonly readArtifact = vi.fn<AgentRuntimeProvider["readArtifact"]>(async () =>
+    unconfigured("readArtifact"),
+  );
   readonly cancel = vi.fn<AgentRuntimeProvider["cancel"]>(async () => unconfigured("cancel"));
   readonly destroySession = vi.fn<AgentRuntimeProvider["destroySession"]>(async () =>
     unconfigured("destroySession"),

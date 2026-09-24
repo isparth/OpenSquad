@@ -10,7 +10,7 @@ import type {
 } from "@opensquad/core";
 import { type Database, runtimeSessions } from "@opensquad/db";
 import { eq } from "drizzle-orm";
-import { sessionInstructions } from "../memory/render.js";
+import { OUTPUT_FILES_INSTRUCTION, sessionInstructions } from "../memory/render.js";
 import { terminal } from "./persistence.js";
 import { runtimeStore, saveRun } from "./run-store.js";
 import { runtimeEvents } from "./runtime-events.js";
@@ -128,12 +128,17 @@ export async function executeRun(work: RunWork) {
         errorCode = "uncertain_mutation";
         throw new Error("Provider reference requires manual recovery");
       }
+      const baseInstructions = sessionInstructions(session.instructions, session.memorySnapshot);
+      const instructions =
+        session.environment === "hosted"
+          ? `${baseInstructions}${baseInstructions ? "\n\n" : ""}${OUTPUT_FILES_INSTRUCTION}`
+          : baseInstructions;
       await mutate(
         "creating",
         () =>
           runtime.createSession(
             {
-              instructions: sessionInstructions(session.instructions, session.memorySnapshot),
+              instructions,
               model: session.model,
               environment: session.environment,
               ...(submitted ? { input: run.input } : {}),

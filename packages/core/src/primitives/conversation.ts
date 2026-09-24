@@ -51,6 +51,19 @@ export interface ConversationMessage {
   createdAt: string;
 }
 
+export type ConversationFileStatus = "stored" | "too_large" | "failed";
+
+export interface ConversationFile {
+  id: string;
+  conversationId: string;
+  runId: string;
+  name: string;
+  sizeBytes: number;
+  contentType: string;
+  status: ConversationFileStatus;
+  createdAt: string;
+}
+
 export interface ConversationRun {
   id: string;
   conversationId: string;
@@ -84,6 +97,7 @@ export type ConversationEventType =
   | "message.delta"
   | "message.text.completed"
   | "message.completed"
+  | "files.updated"
   | "run.updated"
   | "stream.reset";
 export interface ConversationEvent {

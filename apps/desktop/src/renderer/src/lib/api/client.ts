@@ -1,4 +1,5 @@
 import type {
+  ConversationFile,
   ConversationMessage,
   ConversationSummary,
   MemoryDocument,
@@ -117,6 +118,40 @@ function parseMessage(value: unknown): ConversationMessage {
   if (!["running", "completed", "incomplete"].includes(value.status as string)) invalid();
   if (value.phase !== null && value.phase !== "commentary" && value.phase !== "final") invalid();
   return { ...(value as object), content } as ConversationMessage;
+}
+
+function stripControlCharacters(value: string): string {
+  return Array.from(value)
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return !(code <= 0x1f || (code >= 0x7f && code <= 0x9f));
+    })
+    .join("");
+}
+
+function parseConversationFile(value: unknown): ConversationFile {
+  if (!isRecord(value)) invalid();
+  for (const key of ["id", "conversationId", "runId", "name", "contentType", "createdAt"]) {
+    if (typeof value[key] !== "string") invalid();
+  }
+  if (
+    typeof value.sizeBytes !== "number" ||
+    !Number.isSafeInteger(value.sizeBytes) ||
+    value.sizeBytes < 0 ||
+    (value.status !== "stored" && value.status !== "too_large" && value.status !== "failed")
+  ) {
+    invalid();
+  }
+  return {
+    id: value.id as string,
+    conversationId: value.conversationId as string,
+    runId: value.runId as string,
+    name: value.name as string,
+    sizeBytes: value.sizeBytes,
+    contentType: value.contentType as string,
+    status: value.status,
+    createdAt: value.createdAt as string,
+  };
 }
 
 function parsePage<T>(value: unknown, parseItem: (item: unknown) => T) {
@@ -351,6 +386,41 @@ export class ApiClient {
       `/conversations/${encodeURIComponent(conversationId)}/messages?limit=50` +
       (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
     return parsePage(await this.get<unknown>(path, signal), parseMessage);
+  }
+
+  async listConversationFiles(
+    conversationId: string,
+    cursor: string | null,
+    signal?: AbortSignal,
+  ): Promise<{ items: ConversationFile[]; nextCursor: string | null }> {
+    const path =
+      `/conversations/${encodeURIComponent(conversationId)}/files?limit=50` +
+      (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+    return parsePage(await this.get<unknown>(path, signal), parseConversationFile);
+  }
+
+  async downloadConversationFile(conversationId: string, file: ConversationFile): Promise<void> {
+    if (file.conversationId !== conversationId || file.status !== "stored")
+      throw new Error("Invalid conversation file");
+    const basename = file.name.split(/[\\/]/).at(-1);
+    const safeBasename = basename ? stripControlCharacters(basename) : null;
+    if (!safeBasename || safeBasename === "." || safeBasename === "..")
+      throw new Error("Invalid conversation file name");
+    const response = await this.request(
+      `/conversations/${encodeURIComponent(conversationId)}/files/${encodeURIComponent(file.id)}/content`,
+    );
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = safeBasename;
+    anchor.style.display = "none";
+    try {
+      document.body.append(anchor);
+      anchor.click();
+    } finally {
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    }
   }
 
   async getMemory(agentId: string, signal?: AbortSignal): Promise<MemoryResponse> {

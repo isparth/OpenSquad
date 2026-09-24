@@ -4,6 +4,8 @@ const manualClosing =
   "If the user asks you to remember or forget something, tell them they can edit this in the bot's Memory panel.";
 const autoClosing =
   "If the user asks you to remember or forget something, acknowledge it briefly. Saved memory is updated in the background after conversations and applies to later ones.";
+export const OUTPUT_FILES_INSTRUCTION =
+  "Save files the user should receive under /workspace/outputs.";
 
 export function renderMemory(
   docs: {

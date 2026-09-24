@@ -50,6 +50,13 @@
       "when": 1790198661477,
       "tag": "0006_milky_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790242852629,
+      "tag": "0007_old_slipstream",
+      "breakpoints": true
     }
   ]
 }

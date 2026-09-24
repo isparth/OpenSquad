@@ -1,4 +1,4 @@
-import type { MemoryReview } from "@opensquad/core";
+import type { ConversationFile, MemoryReview } from "@opensquad/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type AgentRecord, ApiClient, ApiError } from "@/lib/api/client.js";
 
@@ -138,6 +138,16 @@ const message = {
   status: "running",
   createdAt: "2026-09-15T00:00:00.000Z",
 };
+const conversationFile: ConversationFile = {
+  id: "f-1",
+  conversationId: "c-1",
+  runId: "r-1",
+  name: "reports/fruit.csv",
+  sizeBytes: 14,
+  contentType: "text/csv",
+  status: "stored",
+  createdAt: "2026-09-15T00:00:01.000Z",
+};
 
 describe("conversation client", () => {
   it("lists conversations for an agent with an encoded query", async () => {
@@ -235,6 +245,85 @@ describe("conversation client", () => {
       "http://localhost:3000/conversations/c-1/messages?limit=50&cursor=cur%20sor",
       expect.anything(),
     );
+  });
+
+  it("lists validated conversation files with an optional encoded cursor", async () => {
+    const fetch = vi.mocked(globalThis.fetch);
+    fetch.mockResolvedValueOnce(
+      Response.json({
+        items: [
+          {
+            ...conversationFile,
+            path: "/workspace/outputs/reports/fruit.csv",
+            storageKey: "private",
+          },
+        ],
+        nextCursor: "next-file",
+      }),
+    );
+    expect(await api.listConversationFiles("c 1", null)).toEqual({
+      items: [conversationFile],
+      nextCursor: "next-file",
+    });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/conversations/c%201/files?limit=50",
+      expect.objectContaining({ redirect: "error" }),
+    );
+
+    fetch.mockResolvedValueOnce(Response.json({ items: [], nextCursor: null }));
+    expect(await api.listConversationFiles("c-1", "next file")).toEqual({
+      items: [],
+      nextCursor: null,
+    });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "http://localhost:3000/conversations/c-1/files?limit=50&cursor=next%20file",
+      expect.anything(),
+    );
+  });
+
+  it("rejects malformed conversation-file fields", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ items: [{ ...conversationFile, sizeBytes: "14" }], nextCursor: null }),
+    );
+    await expect(api.listConversationFiles("c-1", null)).rejects.toThrow(
+      "Invalid conversation response",
+    );
+  });
+
+  it("downloads file bytes through a temporary named blob link", async () => {
+    const NativeURL = globalThis.URL;
+    const createObjectURL = vi.fn((_blob: Blob) => "blob:opensquad-file");
+    const revokeObjectURL = vi.fn();
+    class URLWithObjectUrls extends NativeURL {}
+    Object.defineProperties(URLWithObjectUrls, {
+      createObjectURL: { configurable: true, value: createObjectURL },
+      revokeObjectURL: { configurable: true, value: revokeObjectURL },
+    });
+    vi.stubGlobal("URL", URLWithObjectUrls);
+    let clicked: { href: string; download: string } | null = null;
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked = { href: this.href, download: this.download };
+    });
+    const bytes = new Uint8Array([102, 114, 117, 105, 116]);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(bytes, { headers: { "content-type": "application/octet-stream" } }),
+    );
+
+    await api.downloadConversationFile("c-1", conversationFile);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:3000/conversations/c-1/files/f-1/content",
+      expect.objectContaining({ redirect: "error" }),
+    );
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(createObjectURL.mock.calls[0]?.[0]).toMatchObject({
+      size: bytes.byteLength,
+      type: "application/octet-stream",
+    });
+    expect(clicked).toEqual({ href: "blob:opensquad-file", download: "fruit.csv" });
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:opensquad-file");
   });
 
   it("accepts valid command content and rejects malformed command fields", async () => {
