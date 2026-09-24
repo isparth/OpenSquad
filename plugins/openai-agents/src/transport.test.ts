@@ -401,3 +401,125 @@ describe("OpenAI Agents complete-operation deadline", () => {
     expect(fetch.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
   });
 });
+
+describe("OpenAI Agents artifact downloads", () => {
+  it("reads raw bytes through the isolated SDK request", async () => {
+    const { runtime, fetch } = setup();
+    const bytes = Buffer.from("fruit,price\napple,1\n");
+    fetch.mockResolvedValueOnce(
+      new Response(bytes, { headers: { "content-type": "application/octet-stream" } }),
+    );
+
+    const result = await runtime.readArtifact(session, "artifact_123", credentials, {
+      maxBytes: 1024,
+    });
+
+    expect(Buffer.from(result)).toEqual(bytes);
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    const parsed = new URL(String(url));
+    expect(parsed.pathname).toBe(
+      "/v1/agents/sessions/sess_transport/artifacts/artifact_123/content",
+    );
+    expect(parsed.searchParams.get("session_id")).toBe(session.externalId);
+    const headers = new Headers(init?.headers);
+    expect(headers.get("authorization")).toBe("Bearer synthetic-caller-key");
+    expect(init?.redirect).toBe("error");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an advertised content length over maxBytes before reading", async () => {
+    const { runtime, fetch } = setup();
+    let cancelled: ReturnType<typeof vi.fn> | undefined;
+    fetch.mockImplementationOnce(async (_url, init) => {
+      const body = pendingBody(init?.signal);
+      cancelled = body.cancel;
+      return new Response(body.body, { headers: { "content-length": "11" } });
+    });
+
+    await expect(
+      runtime.readArtifact(session, "artifact_123", credentials, { maxBytes: 10 }),
+    ).rejects.toThrow("openai-agents: Artifact exceeds size limit");
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+
+  it("aborts a streamed artifact once its bytes exceed maxBytes", async () => {
+    const { runtime, fetch } = setup();
+    const cancelled = vi.fn();
+    fetch.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(6));
+            controller.enqueue(new Uint8Array(6));
+          },
+          cancel: cancelled,
+        }),
+      ),
+    );
+
+    await expect(
+      runtime.readArtifact(session, "artifact_123", credentials, { maxBytes: 10 }),
+    ).rejects.toThrow("openai-agents: Artifact exceeds size limit");
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+
+  it("uses only explicit credentials, rejects redirects, and validates artifact IDs", async () => {
+    const ambient = [
+      "Authorization: Bearer ambient-key",
+      "OpenAI-Organization: ambient-org",
+      "X-Tenant: ambient",
+    ].join("\n");
+    vi.stubEnv("OPENAI_CUSTOM_HEADERS", ambient);
+    vi.stubEnv("OPENAI_API_KEY", "ambient-key");
+    vi.stubEnv("OPENAI_BASE_URL", "https://outside.example/v1");
+    const { runtime, fetch } = setup();
+    fetch.mockImplementation(async (_url, init) => {
+      if (init?.redirect === "error") throw new TypeError("synthetic redirect rejected");
+      return new Response("bytes");
+    });
+    await expect(
+      runtime.readArtifact(session, "../artifact", credentials, { maxBytes: 100 }),
+    ).rejects.toThrow("openai-agents: Invalid Artifact ID");
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(
+      runtime.readArtifact(session, "artifact_123", credentials, { maxBytes: 100 }),
+    ).rejects.toThrow(/^openai-agents: Request failed/);
+    expect(fetch).toHaveBeenCalledOnce();
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(String(url)).toContain("https://api.openai.com/v1/");
+    const headers = new Headers(init?.headers);
+    expect(headers.get("authorization")).toBe("Bearer synthetic-caller-key");
+    expect(headers.has("openai-organization")).toBe(false);
+    expect(headers.has("x-tenant")).toBe(false);
+    expect(init?.redirect).toBe("error");
+  });
+
+  it("bounds the complete artifact body download at 120 seconds", async () => {
+    vi.useFakeTimers();
+    const { runtime, fetch } = setup();
+    fetch.mockImplementation(
+      async (_url, init) =>
+        new Response(pendingBody(init?.signal).body, {
+          headers: { "content-type": "application/octet-stream" },
+        }),
+    );
+    const result = runtime.readArtifact(session, "artifact_123", credentials, { maxBytes: 100 });
+    let settled = false;
+    void result.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).rejects.toThrow(/^openai-agents:/);
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});

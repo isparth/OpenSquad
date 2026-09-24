@@ -26,6 +26,19 @@ const message = {
   content: [{ type: "output_text", text: "Done" }],
 };
 
+function artifact(id: string, path: string, turnId = turn.id, createdAt = 1_790_197_102) {
+  return {
+    id,
+    object: "agent.session.artifact",
+    session_id: session.externalId,
+    environment_id: "env_123",
+    turn_id: turnId,
+    path,
+    size_bytes: 2,
+    created_at: createdAt,
+  };
+}
+
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -381,6 +394,72 @@ describe("OpenAIAgentsProvider", () => {
     const url = new URL(String(fetch.mock.calls[1]?.[0]));
     expect(url.searchParams.get("after")).toBe("tool_123");
     expect(url.searchParams.get("order")).toBe("asc");
+  });
+
+  it("lists output artifacts across pages and ignores unsafe paths", async () => {
+    const { runtime, fetch } = setup();
+    fetch
+      .mockResolvedValueOnce(
+        json({
+          data: [
+            artifact("artifact_001", "/workspace/outputs/first.csv"),
+            artifact("artifact_outside", "/workspace/private.txt"),
+            artifact("artifact_traversal", "/workspace/outputs/sub/../private.txt"),
+            artifact("artifact_nul", "/workspace/outputs/bad\u0000.txt"),
+          ],
+          first_id: "artifact_001",
+          last_id: "artifact_nul",
+          has_more: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        json({
+          data: [artifact("artifact_002", "/workspace/outputs/nested/second.json", "turn_other")],
+          first_id: "artifact_002",
+          last_id: "artifact_002",
+          has_more: false,
+        }),
+      );
+
+    const artifacts = await collect(runtime.listArtifacts(session, credentials));
+    expect(artifacts).toEqual([
+      {
+        externalId: "artifact_001",
+        turnExternalId: turn.id,
+        path: "/workspace/outputs/first.csv",
+        sizeBytes: 2,
+        createdAt: new Date(1_790_197_102 * 1000).toISOString(),
+      },
+      {
+        externalId: "artifact_002",
+        turnExternalId: "turn_other",
+        path: "/workspace/outputs/nested/second.json",
+        sizeBytes: 2,
+        createdAt: new Date(1_790_197_102 * 1000).toISOString(),
+      },
+    ]);
+    const firstUrl = new URL(String(fetch.mock.calls[0]?.[0]));
+    const secondUrl = new URL(String(fetch.mock.calls[1]?.[0]));
+    expect(firstUrl.pathname).toBe("/v1/agents/sessions/sess_123/artifacts");
+    expect(firstUrl.searchParams.get("order")).toBe("asc");
+    expect(firstUrl.searchParams.get("limit")).toBe("100");
+    expect(secondUrl.searchParams.get("after")).toBe("artifact_nul");
+  });
+
+  it("rejects malformed artifact metadata instead of trusting it", async () => {
+    const { runtime, fetch } = setup();
+    fetch.mockResolvedValueOnce(
+      json({
+        data: [
+          { ...artifact("artifact_invalid", "/workspace/outputs/report.csv"), created_at: "bad" },
+        ],
+        has_more: false,
+        last_id: "artifact_invalid",
+      }),
+    );
+    await expect(collect(runtime.listArtifacts(session, credentials))).rejects.toThrow(
+      "openai-agents: Invalid Agents API response",
+    );
   });
 
   it("skips malformed command items and continues saved-message pagination", async () => {

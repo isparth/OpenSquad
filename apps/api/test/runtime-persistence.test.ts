@@ -31,6 +31,7 @@ describe("normalized runtime persistence", () => {
     mcp: false,
     subagents: false,
     steering: false,
+    artifacts: false,
   };
   beforeAll(async () => {
     app = await createTestApp();

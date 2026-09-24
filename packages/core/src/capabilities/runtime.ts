@@ -51,6 +51,14 @@ export interface RuntimeUsage {
   outputTokens: number;
 }
 
+export interface RuntimeArtifact {
+  externalId: string;
+  turnExternalId: string;
+  path: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
 export interface RuntimeTurn {
   externalId: string;
   subagentExternalId: string | null;
@@ -115,6 +123,7 @@ export interface AgentRuntimeProvider {
     mcp: boolean;
     subagents: boolean;
     steering: boolean;
+    artifacts: boolean;
   };
   createSession(
     options: CreateRuntimeSessionOptions,
@@ -147,6 +156,17 @@ export interface AgentRuntimeProvider {
     credentials: RuntimeCredentials,
     request?: RuntimeRequestOptions,
   ): AsyncIterable<RuntimeTurn>;
+  listArtifacts(
+    session: RuntimeSessionRef,
+    credentials: RuntimeCredentials,
+    request?: RuntimeRequestOptions,
+  ): AsyncIterable<RuntimeArtifact>;
+  readArtifact(
+    session: RuntimeSessionRef,
+    artifactExternalId: string,
+    credentials: RuntimeCredentials,
+    options: { maxBytes: number; signal?: AbortSignal },
+  ): Promise<Uint8Array>;
   cancel(
     session: RuntimeSessionRef,
     credentials: RuntimeCredentials,
