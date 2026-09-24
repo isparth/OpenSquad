@@ -1,5 +1,6 @@
 import type {
   ConversationEvent,
+  ConversationFile,
   ConversationMessage,
   ConversationParticipant,
   ConversationRun,
@@ -7,6 +8,7 @@ import type {
 } from "@opensquad/core";
 import type {
   ConversationEventRow,
+  ConversationFileRow,
   ConversationMessageRow,
   ConversationRow,
   ConversationRunRow,
@@ -54,6 +56,16 @@ export const messageDto = (row: ConversationMessageRow): ConversationMessage => 
   role: row.role,
   content: row.content,
   phase: row.phase,
+  status: row.status,
+  createdAt: row.createdAt.toISOString(),
+});
+export const conversationFileDto = (row: ConversationFileRow): ConversationFile => ({
+  id: row.id,
+  conversationId: row.conversationId,
+  runId: row.runId,
+  name: row.name,
+  sizeBytes: row.sizeBytes,
+  contentType: row.contentType,
   status: row.status,
   createdAt: row.createdAt.toISOString(),
 });

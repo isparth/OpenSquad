@@ -7,6 +7,7 @@ import { runAdmission } from "./admission.js";
 import { runCoordinator } from "./coordinator.js";
 import { ConversationError, runDto } from "./dto.js";
 import { eventStreams } from "./event-stream.js";
+import type { FileCollectionOptions } from "./file-collection.js";
 import { chargeRequest } from "./limits.js";
 import { runtimeStore } from "./run-store.js";
 import { conversationsService } from "./service.js";
@@ -27,6 +28,21 @@ const cursor = z
     );
   })
   .transform((value) => Buffer.from(value, "base64url").toString());
+function decodeFileCursor(value: string): { createdAt: Date; id: string } | null {
+  if (Buffer.from(value, "base64url").toString("base64url") !== value) return null;
+  const decoded = Buffer.from(value, "base64url").toString();
+  const [timestamp, id, ...rest] = decoded.split("|");
+  if (!timestamp || !id || rest.length > 0 || !z.uuid().safeParse(id).success) return null;
+  const createdAt = new Date(timestamp);
+  if (!Number.isFinite(createdAt.getTime()) || createdAt.toISOString() !== timestamp) return null;
+  return { createdAt, id };
+}
+const fileCursor = z
+  .string()
+  .max(200)
+  .refine((value) => decodeFileCursor(value) !== null)
+  .transform((value) => decodeFileCursor(value) as { createdAt: Date; id: string });
+const fileListQuery = z.strictObject({ limit, cursor: fileCursor.optional() });
 const createBody = z.strictObject({
   title: z.string().trim().max(200).optional(),
   participants: z
@@ -46,7 +62,20 @@ function credentials(request: FastifyRequest) {
   return value;
 }
 
-type ConversationRoutesOptions = { usageBackfill: UsageBackfillOptions };
+function fileContentDisposition(name: string): string {
+  const basename = name.split("/").at(-1) || "download";
+  const fallback = basename.replace(/[^\x20-\x7e]/g, "_").replace(/[\\"]/g, "_") || "download";
+  const encoded = encodeURIComponent(basename).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+type ConversationRoutesOptions = {
+  usageBackfill: UsageBackfillOptions;
+  fileCollection?: FileCollectionOptions;
+};
 
 const routes: FastifyPluginAsyncZod<ConversationRoutesOptions> = async (app, options) => {
   app.addHook("preHandler", app.requireAuth);
@@ -60,8 +89,10 @@ const routes: FastifyPluginAsyncZod<ConversationRoutesOptions> = async (app, opt
   const coordinator = runCoordinator(
     app.db,
     app.capabilities.runtime,
+    app.capabilities.storage,
     () => app.log.error("Runtime worker stopped; reconciliation may be required"),
     options.usageBackfill,
+    options.fileCollection,
   );
   const store = runtimeStore(app.db);
   const admit = runAdmission(app.db, {
@@ -233,6 +264,45 @@ const routes: FastifyPluginAsyncZod<ConversationRoutesOptions> = async (app, opt
         request.query.limit,
         request.query.cursor === undefined ? undefined : BigInt(request.query.cursor),
       ),
+  );
+  app.get(
+    "/conversations/:id/files",
+    { schema: { params: idParams, querystring: fileListQuery } },
+    (request) =>
+      service.files(
+        request.userId as string,
+        request.params.id,
+        request.query.limit,
+        request.query.cursor,
+      ),
+  );
+  app.get(
+    "/conversations/:id/files/:fileId/content",
+    { schema: { params: z.object({ id: z.uuid(), fileId: z.uuid() }) } },
+    async (request, reply) => {
+      const file = await service.file(
+        request.userId as string,
+        request.params.id,
+        request.params.fileId,
+      );
+      if (!file?.storageKey) return reply.notFound();
+      try {
+        const bytes = await app.capabilities.storage.get(file.storageKey);
+        if (!bytes) return reply.notFound();
+        return reply
+          .type("application/octet-stream")
+          .header("Content-Disposition", fileContentDisposition(file.name))
+          .header("X-Content-Type-Options", "nosniff")
+          .header("Cache-Control", "private, no-store")
+          .send(Buffer.from(bytes));
+      } catch {
+        request.log.error(
+          { conversationId: file.conversationId, fileId: file.id },
+          "Conversation file read failed",
+        );
+        return reply.internalServerError("Unable to download file");
+      }
+    },
   );
 };
 

@@ -10,6 +10,7 @@ import {
 import auth from "./auth/index.js";
 import type { Env } from "./config/env.js";
 import agentsRoutes from "./modules/agents/routes.js";
+import type { FileCollectionOptions } from "./modules/conversations/file-collection.js";
 import conversationsRoutes from "./modules/conversations/routes.js";
 import type { UsageBackfillOptions } from "./modules/conversations/turn-usage.js";
 import healthRoutes from "./modules/health/routes.js";
@@ -24,6 +25,7 @@ export interface BuildAppOptions {
   capabilities?: Partial<Capabilities>;
   memoryUpdates?: { autoTrigger?: boolean; turnDeadlineMs?: number; pollIntervalMs?: number };
   usageBackfill?: { attempts?: number; intervalMs?: number };
+  fileCollection?: FileCollectionOptions;
 }
 
 export async function buildApp(env: Env, options: BuildAppOptions = {}) {
@@ -61,7 +63,10 @@ export async function buildApp(env: Env, options: BuildAppOptions = {}) {
 
   await app.register(healthRoutes);
   await app.register(agentsRoutes, { prefix: "/agents" });
-  await app.register(conversationsRoutes, { usageBackfill });
+  await app.register(conversationsRoutes, {
+    usageBackfill,
+    ...(options.fileCollection ? { fileCollection: options.fileCollection } : {}),
+  });
   await app.register(memoryRoutes);
   await app.register(meRoutes);
 

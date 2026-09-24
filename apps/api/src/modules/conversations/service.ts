@@ -1,6 +1,7 @@
 import {
   agents,
   conversationEvents,
+  conversationFiles,
   conversationMessages,
   conversationRuns,
   conversations,
@@ -8,11 +9,12 @@ import {
   participants,
   runtimeSessions,
 } from "@opensquad/db";
-import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   ConversationError,
   conversationDto,
+  conversationFileDto,
   eventDto,
   messageDto,
   participantDto,
@@ -20,6 +22,8 @@ import {
 } from "./dto.js";
 import { lockConversation, type Transaction } from "./persistence.js";
 import { refreshObservation } from "./run-store.js";
+
+type ConversationFileCursor = { createdAt: Date; id: string };
 
 async function readMessages(
   tx: Transaction,
@@ -175,6 +179,52 @@ export function conversationsService(db: Database) {
       db.transaction(async (tx) => {
         await lockConversation(tx, ownerId, id);
         return readMessages(tx, id, limit, before);
+      }),
+    files: (ownerId: string, id: string, limit: number, after?: ConversationFileCursor) =>
+      db.transaction(async (tx) => {
+        await lockConversation(tx, ownerId, id);
+        const createdAt = sql<Date>`date_trunc('milliseconds', ${conversationFiles.createdAt})`;
+        const cursorCreatedAt = after?.createdAt.toISOString();
+        const rows = await tx
+          .select()
+          .from(conversationFiles)
+          .where(
+            and(
+              eq(conversationFiles.conversationId, id),
+              after && cursorCreatedAt
+                ? or(
+                    lt(createdAt, cursorCreatedAt),
+                    and(eq(createdAt, cursorCreatedAt), lt(conversationFiles.id, after.id)),
+                  )
+                : undefined,
+            ),
+          )
+          .orderBy(desc(createdAt), desc(conversationFiles.id))
+          .limit(limit + 1);
+        const page = rows.slice(0, limit);
+        const last = page.at(-1);
+        return {
+          items: page.map(conversationFileDto),
+          nextCursor:
+            rows.length > limit && last
+              ? Buffer.from(`${last.createdAt.toISOString()}|${last.id}`).toString("base64url")
+              : null,
+        };
+      }),
+    file: (ownerId: string, id: string, fileId: string) =>
+      db.transaction(async (tx) => {
+        await lockConversation(tx, ownerId, id);
+        const [file] = await tx
+          .select()
+          .from(conversationFiles)
+          .where(
+            and(
+              eq(conversationFiles.conversationId, id),
+              eq(conversationFiles.id, fileId),
+              eq(conversationFiles.status, "stored"),
+            ),
+          );
+        return file ?? null;
       }),
     eventWindow,
     events: async (ownerId: string, id: string, after: bigint, limit = 100) =>

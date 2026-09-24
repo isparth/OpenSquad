@@ -27,6 +27,7 @@ describe("runtime HTTP execution", () => {
   const headers = { "x-opensquad-runtime-key": "dummy-user-key" };
   const expectedAutoMemoryInstructions = `## Memory
 Nothing is saved about this user yet. If the user asks you to remember or forget something, acknowledge it briefly. Saved memory is updated in the background after conversations and applies to later ones.`;
+  const expectedHostedInstructions = `${expectedAutoMemoryInstructions}\n\nSave files the user should receive under /workspace/outputs.`;
   const session = {
     provider: "fake-runtime",
     externalId: "session-test",
@@ -344,7 +345,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     expect(response.statusCode).toBe(202);
     await waitStatus(response.json().run.id, "succeeded");
     expect(runtime.createSession.mock.calls[0]?.[0]).toEqual({
-      instructions: expectedAutoMemoryInstructions,
+      instructions: expectedHostedInstructions,
       model: "gpt-6-luna",
       environment: "hosted",
     });
