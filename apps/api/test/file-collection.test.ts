@@ -313,6 +313,28 @@ describe("conversation output-file collection", () => {
     ).toBe(404);
   });
 
+  it("strips bidi controls from output names and content dispositions", async () => {
+    runtime.listArtifacts.mockImplementation(async function* () {
+      yield artifact(
+        "artifact-bidi-name",
+        "/workspace/outputs/invoice\u202Efdp.exe",
+        1,
+        "2026-09-24T10:00:00.000Z",
+      );
+    });
+    runtime.readArtifact.mockResolvedValue(new Uint8Array([1]));
+    const runId = await sendRun();
+    const [file] = await waitForFiles(runId, 1);
+
+    expect(file?.name).toBe("invoicefdp.exe");
+    const content = await app.inject({
+      method: "GET",
+      url: `/conversations/${conversationId}/files/${file?.id}/content`,
+    });
+    expect(content.headers["content-disposition"]).toContain('filename="invoicefdp.exe"');
+    expect(content.headers["content-disposition"]).toContain("filename*=UTF-8''invoicefdp.exe");
+  });
+
   it("records an artifact over 25 MiB as too_large without reading it", async () => {
     runtime.listArtifacts.mockImplementation(async function* () {
       yield artifact(
@@ -347,6 +369,7 @@ describe("conversation output-file collection", () => {
   });
 
   it("enforces the 100 MiB per-run total", async () => {
+    const sharedBytes = new Uint8Array(maxFileBytes);
     const artifacts = Array.from({ length: 5 }, (_, index) =>
       artifact(
         `artifact-total-${index}`,
@@ -358,7 +381,7 @@ describe("conversation output-file collection", () => {
     runtime.listArtifacts.mockImplementation(async function* () {
       yield* artifacts;
     });
-    runtime.readArtifact.mockImplementation(async () => new Uint8Array([1]));
+    runtime.readArtifact.mockResolvedValue(sharedBytes);
     const runId = await sendRun();
     const rows = await waitForFiles(runId, 5);
     expect(rows.slice(0, 4).every((file) => file.status === "stored")).toBe(true);
@@ -368,6 +391,28 @@ describe("conversation output-file collection", () => {
     expect(runtime.readArtifact.mock.calls.map((call) => call[3].maxBytes)).toEqual(
       Array(4).fill(maxFileBytes),
     );
+  });
+
+  it("accounts actual bytes against the per-run limit", async () => {
+    const sharedBytes = new Uint8Array(maxFileBytes);
+    const artifacts = Array.from({ length: 5 }, (_, index) =>
+      artifact(
+        `artifact-underreported-${index}`,
+        `/workspace/outputs/underreported-${index}.bin`,
+        1,
+        new Date(Date.parse("2026-09-24T10:00:00.000Z") + index * 1_000).toISOString(),
+      ),
+    );
+    runtime.listArtifacts.mockImplementation(async function* () {
+      yield* artifacts;
+    });
+    runtime.readArtifact.mockResolvedValue(sharedBytes);
+    const runId = await sendRun();
+    const rows = await waitForFiles(runId, 5);
+    expect(rows.slice(0, 4).every((file) => file.status === "stored")).toBe(true);
+    expect(rows.slice(0, 4).map((file) => file.sizeBytes)).toEqual(Array(4).fill(maxFileBytes));
+    expect(rows[4]).toMatchObject({ status: "too_large", sizeBytes: 1, storageKey: null });
+    expect(runtime.readArtifact).toHaveBeenCalledTimes(4);
   });
 
   it("collects at most 20 files for one run", async () => {
@@ -402,7 +447,7 @@ describe("conversation output-file collection", () => {
     runtime.readArtifact.mockRejectedValueOnce(new Error("private runtime diagnostic"));
     const runId = await sendRun();
     const [file] = await waitForFiles(runId, 1);
-    expect(file).toMatchObject({ status: "failed", storageKey: null });
+    expect(file).toMatchObject({ status: "failed", storageKey: null, sizeBytes: 3 });
     expect(storage.put).not.toHaveBeenCalled();
     const [run] = await app.db
       .select()

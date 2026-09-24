@@ -44,7 +44,14 @@ function stripControlCharacters(value: string): string {
   return Array.from(value)
     .filter((character) => {
       const code = character.charCodeAt(0);
-      return !(code <= 0x1f || (code >= 0x7f && code <= 0x9f));
+      return !(
+        code <= 0x1f ||
+        (code >= 0x7f && code <= 0x9f) ||
+        code === 0x061c ||
+        (code >= 0x200e && code <= 0x200f) ||
+        (code >= 0x202a && code <= 0x202e) ||
+        (code >= 0x2066 && code <= 0x2069)
+      );
     })
     .join("");
 }
@@ -165,6 +172,7 @@ export async function collectRunFiles(
       const contentType = contentTypeFor(artifact.path);
       let status: "stored" | "too_large" | "failed";
       let storageKey: string | null = null;
+      let sizeBytes = artifact.sizeBytes;
       const remainingBytes = maxRunBytes - storedBytes;
       if (artifact.sizeBytes > maxFileBytes || artifact.sizeBytes > remainingBytes) {
         status = "too_large";
@@ -182,7 +190,8 @@ export async function collectRunFiles(
           await storage.put(key, bytes, contentType);
           status = "stored";
           storageKey = key;
-          storedBytes += artifact.sizeBytes;
+          sizeBytes = bytes.byteLength;
+          storedBytes += bytes.byteLength;
         } catch {
           if (signal.aborted) return;
           status = "failed";
@@ -197,7 +206,7 @@ export async function collectRunFiles(
         turnExternalId: artifact.turnExternalId,
         path: artifact.path,
         name,
-        sizeBytes: artifact.sizeBytes,
+        sizeBytes,
         contentType,
         storageKey,
         status,
