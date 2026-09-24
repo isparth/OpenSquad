@@ -31,11 +31,13 @@ export function useConversationStream(conversationId: string | null): {
   loadEarlier: () => Promise<void>;
   loadingEarlier: boolean;
   earlierError: Error | null;
+  filesError: string | null;
 } {
   const [thread, setThread] = useState<ThreadState>(emptyThread);
   const [stream, setStream] = useState<StreamStatus>(conversationId ? "connecting" : "closed");
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [earlierError, setEarlierError] = useState<Error | null>(null);
+  const [filesError, setFilesError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const sourceRef = useRef<EventSource | null>(null);
   const cursorRef = useRef<string | null>(null);
@@ -46,15 +48,38 @@ export function useConversationStream(conversationId: string | null): {
     void generation;
     if (!conversationId) {
       setThread(emptyThread);
+      setFilesError(null);
       setStream("closed");
       return;
     }
     setThread(emptyThread);
     setEarlierError(null);
+    setFilesError(null);
     setStream("connecting");
     let source: EventSource | null = null;
+    let filesController: AbortController | null = null;
     let cancelled = false;
     const live = () => !cancelled && source !== null && sourceRef.current === source;
+    const loadFiles = async (controller: AbortController) => {
+      try {
+        const client = await getApiClient();
+        if (!live() || controller.signal.aborted) return;
+        let cursor: string | null = null;
+        for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+          const page = await client.listConversationFiles(
+            conversationId,
+            cursor,
+            controller.signal,
+          );
+          if (!live() || controller.signal.aborted) return;
+          setThread((state) => applyEvent(state, { type: "files.loaded", payload: page }));
+          if (page.nextCursor === null) return;
+          cursor = page.nextCursor;
+        }
+      } catch {
+        if (live() && !controller.signal.aborted) setFilesError("Couldn't load files.");
+      }
+    };
     const onEvent = (event: MessageEvent) => {
       if (!live() || typeof event.data !== "string") return;
       try {
@@ -64,6 +89,21 @@ export function useConversationStream(conversationId: string | null): {
             ? (data as { payload?: unknown }).payload
             : undefined;
         setThread((state) => applyEvent(state, { type: event.type, payload }));
+        const conversation =
+          typeof payload === "object" && payload !== null
+            ? (payload as { conversation?: unknown }).conversation
+            : undefined;
+        const matchesConversation =
+          typeof conversation === "object" &&
+          conversation !== null &&
+          (conversation as { id?: unknown }).id === conversationId;
+        if (event.type === "conversation.snapshot" && matchesConversation) {
+          filesController?.abort();
+          const controller = new AbortController();
+          filesController = controller;
+          setFilesError(null);
+          void loadFiles(controller);
+        }
       } catch {
         return;
       }
@@ -91,6 +131,7 @@ export function useConversationStream(conversationId: string | null): {
       });
     return () => {
       cancelled = true;
+      filesController?.abort();
       if (source) {
         if (sourceRef.current === source) sourceRef.current = null;
         source.close();
@@ -126,5 +167,14 @@ export function useConversationStream(conversationId: string | null): {
     }
   }, [conversationId]);
 
-  return { thread, stream, reconnect, apply, loadEarlier, loadingEarlier, earlierError };
+  return {
+    thread,
+    stream,
+    reconnect,
+    apply,
+    loadEarlier,
+    loadingEarlier,
+    earlierError,
+    filesError,
+  };
 }

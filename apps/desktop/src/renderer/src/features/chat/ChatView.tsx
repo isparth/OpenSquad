@@ -316,14 +316,21 @@ function Thread({
   keyReady: boolean;
   onOpenKeySettings(): void;
 }) {
-  const { thread, stream, reconnect, apply, loadEarlier, loadingEarlier, earlierError } =
-    useConversationStream(conversationId);
+  const {
+    thread,
+    stream,
+    reconnect,
+    apply,
+    loadEarlier,
+    loadingEarlier,
+    earlierError,
+    filesError,
+  } = useConversationStream(conversationId);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<{ text: string; clientRequestId: string } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runBusy, setRunBusy] = useState(false);
-  const [fileLoadError, setFileLoadError] = useState<string | null>(null);
   const scroller = useRef<HTMLOListElement>(null);
   const nearBottom = useRef(true);
   const messages = thread.messages;
@@ -339,23 +346,6 @@ function Thread({
     files.push(file);
     filesByMessageId.set(messageId, files);
   }
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setFileLoadError(null);
-    void getApiClient()
-      .then((client) => {
-        if (controller.signal.aborted) return null;
-        return client.listConversationFiles(conversationId, null, controller.signal);
-      })
-      .then((page) => {
-        if (page && !controller.signal.aborted) apply({ type: "files.loaded", payload: page });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setFileLoadError("Couldn't load files.");
-      });
-    return () => controller.abort();
-  }, [apply, conversationId]);
 
   useEffect(() => {
     void messages;
@@ -476,9 +466,9 @@ function Thread({
           );
         })}
       </ol>
-      {fileLoadError && (
+      {filesError && (
         <p role="alert" className="error-message">
-          {fileLoadError}
+          {filesError}
         </p>
       )}
       <div className="chat-status-bar" role="status">

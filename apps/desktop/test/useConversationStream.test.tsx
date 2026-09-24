@@ -34,7 +34,7 @@ async function latestSource() {
 beforeEach(() => {
   FakeEventSource.instances = [];
   vi.stubGlobal("EventSource", FakeEventSource);
-  vi.stubGlobal("fetch", vi.fn());
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ items: [], nextCursor: null })));
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -136,9 +136,14 @@ describe("useConversationStream", () => {
     const source = await latestSource();
     source.emit("conversation.snapshot", snapshot);
     const earlier = { ...message, id: "m-0", sequence: "0", status: "completed" };
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ items: [earlier], nextCursor: null })),
-    );
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return Promise.resolve(
+        new URL(url).pathname.endsWith("/messages")
+          ? Response.json({ items: [earlier], nextCursor: null })
+          : Response.json({ items: [], nextCursor: null }),
+      );
+    });
     await act(() => result.current.loadEarlier());
     expect(result.current.thread.messages.map((m) => m.id)).toEqual(["m-0", "m-1"]);
     expect(result.current.thread.nextMessageCursor).toBeNull();
@@ -147,7 +152,7 @@ describe("useConversationStream", () => {
       expect.anything(),
     );
     await act(() => result.current.loadEarlier());
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("closes when the API client cannot be resolved", async () => {
@@ -165,7 +170,14 @@ describe("useConversationStream", () => {
     const { result } = renderHook(() => useConversationStream("c-1"));
     const source = await latestSource();
     source.emit("conversation.snapshot", snapshot);
-    vi.mocked(fetch).mockResolvedValueOnce(new Response("nope", { status: 500 }));
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return Promise.resolve(
+        new URL(url).pathname.endsWith("/messages")
+          ? new Response("nope", { status: 500 })
+          : Response.json({ items: [], nextCursor: null }),
+      );
+    });
     await act(() => result.current.loadEarlier());
     expect(result.current.earlierError?.message).toBe("API returned status 500");
     expect(result.current.loadingEarlier).toBe(false);
