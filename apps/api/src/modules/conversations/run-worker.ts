@@ -102,33 +102,37 @@ export async function executeRun(work: RunWork) {
       failureCode = "tools_key_required";
       throw new Error("Tools key unavailable");
     }
-    try {
-      const active = (await tools.listConnections(toolsCredentials, ownerId, { signal })).filter(
-        (connection) => connection.status === "active",
-      );
-      const resolved = grants.map((grant) => {
-        const matches = active.filter((connection) => connection.toolkit === grant.toolkit);
-        if (matches.length !== 1 || !matches[0]) {
-          failureCode = matches.length ? "tools_multiple_accounts" : "tools_not_connected";
-          throw new Error("Tool connection unavailable");
-        }
-        return { ...grant, connectionId: matches[0].id };
-      });
-      signal.throwIfAborted();
-      const result = await tools.createSession(toolsCredentials, ownerId, resolved, { signal });
-      await owned(async (tx) => {
-        await tx
-          .update(runtimeSessions)
-          .set({ toolsExternalId: result.externalId })
-          .where(eq(runtimeSessions.id, sessionId));
-      });
-      return result;
-    } catch (error) {
-      if (signal.aborted) throw error;
-      failureCode ??=
-        (error instanceof ToolsError && toolsErrorCodes[error.code]) || "tools_unavailable";
-      throw new Error("Tool session setup failed");
-    }
+    const provider = async <T>(call: () => Promise<T>) => {
+      try {
+        return await call();
+      } catch (error) {
+        if (!signal.aborted && error instanceof ToolsError)
+          failureCode = toolsErrorCodes[error.code] ?? "tools_unavailable";
+        throw error;
+      }
+    };
+    const active = (
+      await provider(() => tools.listConnections(toolsCredentials, ownerId, { signal }))
+    ).filter((connection) => connection.status === "active");
+    const resolved = grants.map((grant) => {
+      const matches = active.filter((connection) => connection.toolkit === grant.toolkit);
+      if (matches.length !== 1 || !matches[0]) {
+        failureCode = matches.length ? "tools_multiple_accounts" : "tools_not_connected";
+        throw new Error("Tool connection unavailable");
+      }
+      return { ...grant, connectionId: matches[0].id };
+    });
+    signal.throwIfAborted();
+    const result = await provider(() =>
+      tools.createSession(toolsCredentials, ownerId, resolved, { signal }),
+    );
+    await owned(async (tx) => {
+      await tx
+        .update(runtimeSessions)
+        .set({ toolsExternalId: result.externalId })
+        .where(eq(runtimeSessions.id, sessionId));
+    });
+    return result;
   }
 
   async function savedTurns(ref: RuntimeSessionRef) {

@@ -914,7 +914,6 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       "tools_key_rejected",
       () => tools.listConnections.mockRejectedValue(new ToolsError("unauthorized", "Rejected")),
     ],
-    ["tools_unavailable", () => tools.listConnections.mockRejectedValue(new Error("Network down"))],
     [
       "tools_policy_mismatch",
       () => {
@@ -1056,6 +1055,25 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     const row = await runWorker(controller.signal, { apiKey: "dummy-tools-key" });
     expect(row?.errorCode).toBe("worker_lost");
     expect(tools.createSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an unexpected tools error", () => tools.listConnections.mockRejectedValue(new Error("Bug"))],
+    [
+      "a failed tool session write",
+      () => {
+        connectApps();
+        tools.createSession.mockResolvedValue({ ...toolSession, externalId: "bad\u0000id" });
+      },
+    ],
+  ])("does not report %s as a tools problem", async (_case, setup) => {
+    await enableApps();
+    setup();
+
+    const row = await runWorker(undefined, { apiKey: "dummy-tools-key" });
+    expect(row?.status).toBe("failed");
+    expect(row?.errorCode).toBe("provider_failure");
+    expect(runtime.createSession).not.toHaveBeenCalled();
   });
 
   it("reports hosted session drift before checking support for the new environment", async () => {
