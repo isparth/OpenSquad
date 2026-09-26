@@ -39,7 +39,7 @@ if (!app.requestSingleInstanceLock()) {
       ...vaultOptions,
       fileName: toolsVaultFileName,
     });
-    const commands = createRuntimeCommands({ vault, fetch });
+    const commands = createRuntimeCommands({ vault, toolsVault, fetch });
     const toolsCommands = createToolsCommands({
       vault: toolsVault,
       fetch,

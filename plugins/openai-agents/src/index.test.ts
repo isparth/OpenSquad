@@ -191,6 +191,7 @@ describe("OpenAIAgentsProvider", () => {
             },
             allowed_tools: ["search"],
             required: true,
+            connection_origin: "service",
           },
         ],
       },

@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import type {
-  AgentRuntimeProvider,
-  RuntimeCredentials,
-  RuntimeEvent,
-  RuntimeEventStream,
-  RuntimeSessionRef,
-  RuntimeTurn,
+import {
+  type AgentRuntimeProvider,
+  type AgentToolGrant,
+  type RuntimeCredentials,
+  type RuntimeEvent,
+  type RuntimeEventStream,
+  type RuntimeSessionRef,
+  type RuntimeTurn,
+  type ToolsCredentials,
+  ToolsError,
+  type ToolsErrorCode,
+  type ToolsProvider,
 } from "@opensquad/core";
 import { type Database, runtimeSessions } from "@opensquad/db";
 import { eq } from "drizzle-orm";
@@ -18,16 +23,27 @@ import { runtimeEvents } from "./runtime-events.js";
 export interface RunWork {
   db: Database;
   runtime: AgentRuntimeProvider;
+  tools: ToolsProvider;
   ownerId: string;
   runId: string;
   token: string;
   credentials: RuntimeCredentials;
+  /** Only for creating the tool session; never merged into `credentials`. */
+  toolsCredentials?: ToolsCredentials;
   signal: AbortSignal;
   mode: "execute" | "recover";
 }
 
+const cancelledBeforeCreate = Symbol("cancelledBeforeCreate");
+
+const toolsErrorCodes: Partial<Record<ToolsErrorCode, string>> = {
+  unauthorized: "tools_key_rejected",
+  policy_mismatch: "tools_policy_mismatch",
+};
+
 export async function executeRun(work: RunWork) {
-  const { db, runtime, ownerId, runId, token, credentials, signal, mode } = work;
+  const { db, runtime, tools, ownerId, runId, token, credentials, toolsCredentials, signal, mode } =
+    work;
   const store = runtimeStore(db);
   const processor = runtimeEvents(db);
   const owned = <T>(action: Parameters<typeof store.owned<T>>[3]) =>
@@ -37,6 +53,7 @@ export async function executeRun(work: RunWork) {
   let done = false;
   let pumpFailure: string | null = null;
   let errorCode: string | null = null;
+  let failureCode: string | null = null;
   let bufferedBytes = 0;
   const queued: RuntimeEvent[] = [];
   const deferred: RuntimeEvent[] = [];
@@ -48,15 +65,21 @@ export async function executeRun(work: RunWork) {
     nextPhase: "subscribing" | "observing" = "observing",
   ) {
     signal.throwIfAborted();
-    await owned(async (tx, run) => {
+    const cancelled = await owned(async (tx, run) => {
       if (run.mutationInFlight || !run.active)
         throw new Error("Run cannot dispatch another mutation");
+      if (phase === "creating" && run.cancelRequested) {
+        await saveRun(tx, run, { status: "cancelled", errorCode: null });
+        return true;
+      }
       await saveRun(tx, run, {
         phase,
         mutationInFlight: true,
         ...(phase === "cancelling" ? { cancelDispatched: true } : {}),
       });
+      return false;
     });
+    if (cancelled) return cancelledBeforeCreate;
     let value: T;
     try {
       value = await call();
@@ -80,6 +103,48 @@ export async function executeRun(work: RunWork) {
       }),
     );
     return value;
+  }
+
+  async function openToolSession(sessionId: string, grants: AgentToolGrant[]) {
+    signal.throwIfAborted();
+    if (!toolsCredentials) {
+      failureCode = "tools_key_required";
+      throw new Error("Tools key unavailable");
+    }
+    const provider = async <T>(call: () => Promise<T>) => {
+      try {
+        return await call();
+      } catch (error) {
+        if (!signal.aborted && error instanceof ToolsError)
+          failureCode = toolsErrorCodes[error.code] ?? "tools_unavailable";
+        throw error;
+      }
+    };
+    const active = (
+      await provider(() => tools.listConnections(toolsCredentials, ownerId, { signal }))
+    ).filter((connection) => connection.status === "active");
+    const resolved = grants.map((grant) => {
+      const matches = active.filter((connection) => connection.toolkit === grant.toolkit);
+      if (matches.length !== 1 || !matches[0]) {
+        signal.throwIfAborted();
+        failureCode = matches.length ? "tools_multiple_accounts" : "tools_not_connected";
+        throw new Error("Tool connection unavailable");
+      }
+      return { ...grant, connectionId: matches[0].id };
+    });
+    signal.throwIfAborted();
+    const result = await provider(() =>
+      tools.createSession(toolsCredentials, ownerId, resolved, { signal }),
+    );
+    // If the run is cancelled or fails before OpenAI, this session is left unreconciled (and a
+    // retry overwrites the reference): Composio sessions are free and carry only the policy.
+    await owned(async (tx) => {
+      await tx
+        .update(runtimeSessions)
+        .set({ toolsExternalId: result.externalId })
+        .where(eq(runtimeSessions.id, sessionId));
+    });
+    return result;
   }
 
   async function savedTurns(ref: RuntimeSessionRef) {
@@ -108,7 +173,7 @@ export async function executeRun(work: RunWork) {
     if (session.provider !== runtime.name)
       throw new Error("Runtime is unavailable for this session");
     if (mode === "execute" && run.cancelRequested) {
-      await owned((tx, current) => saveRun(tx, current, { status: "cancelled" }));
+      await owned((tx, current) => saveRun(tx, current, { status: "cancelled", errorCode: null }));
       return;
     }
     if (
@@ -116,8 +181,15 @@ export async function executeRun(work: RunWork) {
       (run.phase === "admitted" || run.phase === "subscribing") &&
       !run.rootTurnId
     ) {
+      // No root turn was started at the provider, so a requested cancel is a clean cancel.
       await owned((tx, current) =>
-        saveRun(tx, current, { status: "failed", errorCode: "provider_failure" }),
+        saveRun(
+          tx,
+          current,
+          current.cancelRequested
+            ? { status: "cancelled", errorCode: null }
+            : { status: "failed", errorCode: "provider_failure" },
+        ),
       );
       return;
     }
@@ -133,7 +205,10 @@ export async function executeRun(work: RunWork) {
         session.environment === "hosted"
           ? `${baseInstructions}${baseInstructions ? "\n\n" : ""}${OUTPUT_FILES_INSTRUCTION}`
           : baseInstructions;
-      await mutate(
+      const toolSession = session.toolGrants.length
+        ? await openToolSession(session.id, session.toolGrants)
+        : null;
+      const creation = await mutate(
         "creating",
         () =>
           runtime.createSession(
@@ -142,8 +217,14 @@ export async function executeRun(work: RunWork) {
               model: session.model,
               environment: session.environment,
               ...(submitted ? { input: run.input } : {}),
+              ...(toolSession ? { mcpServers: [toolSession.mcpServer] } : {}),
             },
-            credentials,
+            toolSession
+              ? {
+                  ...credentials,
+                  mcp: { [toolSession.mcpServer.name]: { headers: toolSession.mcpHeaders } },
+                }
+              : credentials,
             { signal },
           ),
         async (result) => {
@@ -158,6 +239,7 @@ export async function executeRun(work: RunWork) {
         },
         submitted ? "observing" : "subscribing",
       );
+      if (creation === cancelledBeforeCreate) return;
       ({ run, session } = await store.get(ownerId, runId));
     }
     if (!session.externalId) throw new Error("Provider reference unavailable");
@@ -275,17 +357,19 @@ export async function executeRun(work: RunWork) {
         }
       }
     }
-    if (signal.aborted) errorCode = "worker_lost";
+    // A tools failure is deterministic, so it stays a failure even if shutdown raced it.
+    if (signal.aborted && !failureCode) errorCode = "worker_lost";
     const state = await store.get(ownerId, runId);
     if (
       errorCode !== "output_limit" &&
+      (!signal.aborted || failureCode) &&
       state.run.leaseToken === token &&
       mode === "execute" &&
       !state.run.mutationInFlight &&
       ["admitted", "subscribing"].includes(state.run.phase)
     ) {
       await owned((tx, current) =>
-        saveRun(tx, current, { status: "failed", errorCode: "provider_failure" }),
+        saveRun(tx, current, { status: "failed", errorCode: failureCode ?? "provider_failure" }),
       );
     } else {
       errorCode ??= state.run.errorCode ?? "stream_disconnected";

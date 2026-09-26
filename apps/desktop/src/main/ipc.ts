@@ -39,6 +39,7 @@ const STATIC_ERRORS = new Set([
   "authentication required",
   "resource not found",
   "request conflict",
+  "tools key required",
   "service unavailable",
   "tools credential unavailable",
   "tools key rejected",

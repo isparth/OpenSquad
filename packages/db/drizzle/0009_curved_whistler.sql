@@ -1,0 +1,1 @@
+ALTER TABLE "runtime_sessions" ADD COLUMN "tools_external_id" text;

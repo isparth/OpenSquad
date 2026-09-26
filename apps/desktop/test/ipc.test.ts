@@ -373,6 +373,21 @@ describe("tools channels", () => {
     expect(toolsCommands.startConnection).toHaveBeenCalledOnce();
   });
 
+  it("passes the tools key required error from sendMessage through", async () => {
+    const wc = new FakeWebContents();
+    controller.trustWindow(fakeWindow(wc));
+    (commands.sendMessage as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("tools key required"),
+    );
+    await expect(
+      invoke(IPC.sendMessage, eventFor(wc), {
+        conversationId: "11111111-1111-4111-8111-111111111111",
+        text: "hello",
+        clientRequestId: "33333333-3333-4333-8333-333333333333",
+      }),
+    ).rejects.toThrow(/^tools key required$/);
+  });
+
   it("passes static tools errors through and hides others", async () => {
     const wc = new FakeWebContents();
     controller.trustWindow(fakeWindow(wc));

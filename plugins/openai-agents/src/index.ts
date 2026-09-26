@@ -211,6 +211,7 @@ export class OpenAIAgentsProvider implements AgentRuntimeProvider {
                   },
                   allowed_tools: server.allowedTools,
                   required: true,
+                  connection_origin: "service",
                 })),
               }),
         },
