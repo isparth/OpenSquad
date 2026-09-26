@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { RuntimeEvent, RuntimeMessage, RuntimeTurn } from "@opensquad/core";
+import {
+  type RuntimeEvent,
+  type RuntimeMessage,
+  type RuntimeTurn,
+  type ToolConnection,
+  ToolsError,
+} from "@opensquad/core";
 import {
   agents,
   conversationEvents,
@@ -13,6 +19,9 @@ import { and, asc, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { App } from "../src/app.js";
 import { agentsService } from "../src/modules/agents/service.js";
+import { runAdmission } from "../src/modules/conversations/admission.js";
+import { runtimeStore } from "../src/modules/conversations/run-store.js";
+import { executeRun } from "../src/modules/conversations/run-worker.js";
 import { conversationsService } from "../src/modules/conversations/service.js";
 import { testDatabaseUrl } from "./database-url.js";
 import { FakeRuntimeProvider, FakeToolsProvider } from "./fakes.js";
@@ -738,6 +747,251 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     expect(runtime.createSession.mock.calls[0]?.[1]).toEqual({ apiKey: "dummy-user-key" });
     expect(tools.listConnections).not.toHaveBeenCalled();
     expect(tools.createSession).not.toHaveBeenCalled();
+  });
+
+  const connection = (id: string, toolkit: string, status: ToolConnection["status"]) => ({
+    id,
+    toolkit,
+    status,
+    createdAt: "2026-09-20T00:00:00.000Z",
+  });
+  const toolSession = {
+    externalId: "tool-session-test",
+    mcpServer: {
+      name: "composio",
+      url: "https://backend.composio.dev/tool_router/test/mcp",
+      allowedTools: ["COMPOSIO_SEARCH_TOOLS"],
+    },
+    mcpHeaders: { "x-api-key": "dummy-tools-key" },
+  };
+  async function enableApps() {
+    runtime.features.mcp = true;
+    await setToolGrants([
+      { toolkit: "gmail", access: "write" },
+      { toolkit: "github", access: "read" },
+    ]);
+    runtime.listTurns.mockImplementation(async function* () {
+      yield root("succeeded");
+    });
+    runtime.listMessages.mockImplementation(async function* () {
+      yield savedMessage("user", "saved-user", "Hello");
+      yield savedMessage("assistant", "saved-assistant", "Reply");
+    });
+  }
+  function connectApps() {
+    tools.listConnections.mockResolvedValue([
+      connection("github-old", "github", "attention"),
+      connection("github-active", "github", "active"),
+      connection("gmail-pending", "gmail", "pending"),
+      connection("gmail-active", "gmail", "active"),
+      connection("slack-active", "slack", "active"),
+    ]);
+    tools.createSession.mockResolvedValue(toolSession);
+  }
+  async function sessionRow() {
+    const [row] = await app.db
+      .select()
+      .from(runtimeSessions)
+      .where(eq(runtimeSessions.conversationId, conversationId));
+    return row;
+  }
+
+  it("creates a tool session before the runtime session and wires it as an MCP server", async () => {
+    await enableApps();
+    connectApps();
+    let toolsReferenceAtCreate: string | null | undefined;
+    runtime.createSession.mockImplementationOnce(async () => {
+      toolsReferenceAtCreate = (await sessionRow())?.toolsExternalId;
+      return session;
+    });
+
+    const response = await send(randomUUID(), "Hello", toolsHeaders);
+    expect(response.statusCode).toBe(202);
+    await waitStatus(response.json().run.id, "succeeded");
+    expect(toolsReferenceAtCreate).toBe("tool-session-test");
+    expect(tools.listConnections).toHaveBeenCalledOnce();
+    expect(tools.listConnections.mock.calls[0]?.slice(0, 2)).toEqual([
+      { apiKey: "dummy-tools-key" },
+      "dev-user",
+    ]);
+    expect(tools.createSession.mock.calls[0]?.slice(0, 3)).toEqual([
+      { apiKey: "dummy-tools-key" },
+      "dev-user",
+      [
+        { toolkit: "github", access: "read", connectionId: "github-active" },
+        { toolkit: "gmail", access: "write", connectionId: "gmail-active" },
+      ],
+    ]);
+    expect(runtime.createSession.mock.calls[0]?.[0]).toEqual({
+      instructions: expectedAutoMemoryInstructions,
+      model: "gpt-6-luna",
+      environment: "none",
+      input: "Hello",
+      mcpServers: [toolSession.mcpServer],
+    });
+    expect(runtime.createSession.mock.calls[0]?.[1]).toEqual({
+      apiKey: "dummy-user-key",
+      mcp: { composio: { headers: { "x-api-key": "dummy-tools-key" } } },
+    });
+    const signal = runtime.createSession.mock.calls[0]?.[2]?.signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(tools.listConnections.mock.calls[0]?.[2]?.signal).toBe(signal);
+    expect(tools.createSession.mock.calls[0]?.[3]?.signal).toBe(signal);
+    expect(tools.createSession.mock.invocationCallOrder[0]).toBeLessThan(
+      runtime.createSession.mock.invocationCallOrder[0] ?? 0,
+    );
+    for (const call of [...runtime.events.mock.calls, ...runtime.listTurns.mock.calls])
+      expect(call[1]).toEqual({ apiKey: "dummy-user-key" });
+    expect((await sessionRow())?.toolsExternalId).toBe("tool-session-test");
+
+    const queues: RuntimeQueue[] = [];
+    runtime.events.mockImplementation(async () => {
+      const next = new RuntimeQueue();
+      queues.push(next);
+      return next;
+    });
+    runtime.sendInput.mockImplementation(async () => {
+      queues[0]?.emit(turn("running", "followup-turn"));
+      queues[0]?.emit(turn("succeeded", "followup-turn"));
+    });
+    const followup = await send(randomUUID(), "Second message");
+    expect(followup.statusCode).toBe(202);
+    await waitStatus(followup.json().run.id, "succeeded");
+    expect(tools.listConnections).toHaveBeenCalledOnce();
+    expect(tools.createSession).toHaveBeenCalledOnce();
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect(runtime.sendInput.mock.calls[0]?.[2]).toEqual({ apiKey: "dummy-user-key" });
+
+    const persisted = JSON.stringify(
+      [
+        await sessionRow(),
+        ...(await Promise.all(
+          [conversationRuns, conversationEvents, conversationMessages].map((table) =>
+            app.db.select().from(table).where(eq(table.conversationId, conversationId)),
+          ),
+        )),
+      ],
+      (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+    );
+    expect(persisted).not.toContain("dummy-tools-key");
+    const reads = JSON.stringify(
+      await Promise.all(
+        [
+          `/runs/${response.json().run.id}`,
+          `/conversations/${conversationId}`,
+          `/conversations/${conversationId}/messages`,
+        ].map(async (url) => (await app.inject({ method: "GET", url })).json()),
+      ),
+    );
+    const events = JSON.stringify(
+      await conversationsService(app.db).events("dev-user", conversationId, 0n),
+    );
+    for (const serialized of [reads, events]) {
+      expect(serialized).not.toContain("dummy-tools-key");
+      expect(serialized).not.toContain("tool-session-test");
+    }
+  });
+
+  it.each([
+    [
+      "tools_not_connected",
+      () =>
+        tools.listConnections.mockResolvedValue([
+          connection("github-old", "github", "attention"),
+          connection("gmail-active", "gmail", "active"),
+        ]),
+    ],
+    [
+      "tools_multiple_accounts",
+      () =>
+        tools.listConnections.mockResolvedValue([
+          connection("github-a", "github", "active"),
+          connection("github-b", "github", "active"),
+          connection("gmail-active", "gmail", "active"),
+        ]),
+    ],
+    [
+      "tools_key_rejected",
+      () => tools.listConnections.mockRejectedValue(new ToolsError("unauthorized", "Rejected")),
+    ],
+    ["tools_unavailable", () => tools.listConnections.mockRejectedValue(new Error("Network down"))],
+    [
+      "tools_policy_mismatch",
+      () => {
+        connectApps();
+        tools.createSession.mockRejectedValue(new ToolsError("policy_mismatch", "Mismatch"));
+      },
+    ],
+    [
+      "tools_unavailable",
+      () => {
+        connectApps();
+        tools.createSession.mockRejectedValue(new ToolsError("unavailable", "Unavailable"));
+      },
+    ],
+    [
+      "tools_unavailable",
+      () => {
+        connectApps();
+        tools.createSession.mockRejectedValue(new ToolsError("rate_limited", "Limited"));
+      },
+    ],
+  ])("fails cleanly with %s without calling the runtime, then retries", async (code, setup) => {
+    await enableApps();
+    setup();
+
+    const response = await send(randomUUID(), "Hello", toolsHeaders);
+    expect(response.statusCode).toBe(202);
+    const id = response.json().run.id;
+    await waitStatus(id, "failed");
+    const run = (await app.inject({ method: "GET", url: `/runs/${id}` })).json().run;
+    expect(run.error.code).toBe(code);
+    expect(run.error.message).toMatch(/Tools|Composio|app/);
+    expect(runtime.createSession).not.toHaveBeenCalled();
+    expect((await sessionRow())?.toolsExternalId).toBeNull();
+    const [row] = await app.db.select().from(conversationRuns).where(eq(conversationRuns.id, id));
+    expect(row?.observation).toBe("disconnected");
+    expect(row?.mutationInFlight).toBe(false);
+
+    tools.listConnections.mockReset();
+    tools.createSession.mockReset();
+    connectApps();
+    runtime.createSession.mockResolvedValue(session);
+    const retry = await send(randomUUID(), "Hello", toolsHeaders);
+    expect(retry.statusCode).toBe(202);
+    await waitStatus(retry.json().run.id, "succeeded");
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect((await sessionRow())?.toolsExternalId).toBe("tool-session-test");
+  });
+
+  it("fails with tools_key_required when the worker has no tools key", async () => {
+    await enableApps();
+    const admitted = await runAdmission(app.db, {
+      provider: runtime.name,
+      model: "gpt-6-luna",
+      features: runtime.features,
+    })("dev-user", conversationId, { text: "Hello", clientRequestId: randomUUID() }, true);
+    const token = await runtimeStore(app.db).claim("dev-user", admitted.run.id);
+    await executeRun({
+      db: app.db,
+      runtime,
+      tools,
+      ownerId: "dev-user",
+      runId: admitted.run.id,
+      token: token as string,
+      credentials: { apiKey: "dummy-user-key" },
+      signal: new AbortController().signal,
+      mode: "execute",
+    });
+    const run = (await app.inject({ method: "GET", url: `/runs/${admitted.run.id}` })).json().run;
+    expect(run.status).toBe("failed");
+    expect(run.active).toBe(false);
+    expect(run.error).toEqual({
+      code: "tools_key_required",
+      message: "Add your Composio key in Tools, then send again.",
+    });
+    expect(tools.listConnections).not.toHaveBeenCalled();
+    expect(runtime.createSession).not.toHaveBeenCalled();
   });
 
   it("reports hosted session drift before checking support for the new environment", async () => {

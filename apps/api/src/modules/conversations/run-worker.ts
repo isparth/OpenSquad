@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import type {
-  AgentRuntimeProvider,
-  RuntimeCredentials,
-  RuntimeEvent,
-  RuntimeEventStream,
-  RuntimeSessionRef,
-  RuntimeTurn,
+import {
+  type AgentRuntimeProvider,
+  type AgentToolGrant,
+  type RuntimeCredentials,
+  type RuntimeEvent,
+  type RuntimeEventStream,
+  type RuntimeSessionRef,
+  type RuntimeTurn,
+  type ToolsCredentials,
+  ToolsError,
+  type ToolsErrorCode,
+  type ToolsProvider,
 } from "@opensquad/core";
 import { type Database, runtimeSessions } from "@opensquad/db";
 import { eq } from "drizzle-orm";
@@ -18,16 +23,25 @@ import { runtimeEvents } from "./runtime-events.js";
 export interface RunWork {
   db: Database;
   runtime: AgentRuntimeProvider;
+  tools: ToolsProvider;
   ownerId: string;
   runId: string;
   token: string;
   credentials: RuntimeCredentials;
+  /** Only for creating the tool session; never merged into `credentials`. */
+  toolsCredentials?: ToolsCredentials;
   signal: AbortSignal;
   mode: "execute" | "recover";
 }
 
+const toolsErrorCodes: Partial<Record<ToolsErrorCode, string>> = {
+  unauthorized: "tools_key_rejected",
+  policy_mismatch: "tools_policy_mismatch",
+};
+
 export async function executeRun(work: RunWork) {
-  const { db, runtime, ownerId, runId, token, credentials, signal, mode } = work;
+  const { db, runtime, tools, ownerId, runId, token, credentials, toolsCredentials, signal, mode } =
+    work;
   const store = runtimeStore(db);
   const processor = runtimeEvents(db);
   const owned = <T>(action: Parameters<typeof store.owned<T>>[3]) =>
@@ -37,6 +51,7 @@ export async function executeRun(work: RunWork) {
   let done = false;
   let pumpFailure: string | null = null;
   let errorCode: string | null = null;
+  let failureCode: string | null = null;
   let bufferedBytes = 0;
   const queued: RuntimeEvent[] = [];
   const deferred: RuntimeEvent[] = [];
@@ -80,6 +95,38 @@ export async function executeRun(work: RunWork) {
       }),
     );
     return value;
+  }
+
+  async function openToolSession(sessionId: string, grants: AgentToolGrant[]) {
+    if (!toolsCredentials) {
+      failureCode = "tools_key_required";
+      throw new Error("Tools key unavailable");
+    }
+    try {
+      const active = (await tools.listConnections(toolsCredentials, ownerId, { signal })).filter(
+        (connection) => connection.status === "active",
+      );
+      const resolved = grants.map((grant) => {
+        const matches = active.filter((connection) => connection.toolkit === grant.toolkit);
+        if (matches.length !== 1 || !matches[0]) {
+          failureCode = matches.length ? "tools_multiple_accounts" : "tools_not_connected";
+          throw new Error("Tool connection unavailable");
+        }
+        return { ...grant, connectionId: matches[0].id };
+      });
+      const result = await tools.createSession(toolsCredentials, ownerId, resolved, { signal });
+      await owned(async (tx) => {
+        await tx
+          .update(runtimeSessions)
+          .set({ toolsExternalId: result.externalId })
+          .where(eq(runtimeSessions.id, sessionId));
+      });
+      return result;
+    } catch (error) {
+      failureCode ??=
+        (error instanceof ToolsError && toolsErrorCodes[error.code]) || "tools_unavailable";
+      throw new Error("Tool session setup failed");
+    }
   }
 
   async function savedTurns(ref: RuntimeSessionRef) {
@@ -133,6 +180,9 @@ export async function executeRun(work: RunWork) {
         session.environment === "hosted"
           ? `${baseInstructions}${baseInstructions ? "\n\n" : ""}${OUTPUT_FILES_INSTRUCTION}`
           : baseInstructions;
+      const toolSession = session.toolGrants.length
+        ? await openToolSession(session.id, session.toolGrants)
+        : null;
       await mutate(
         "creating",
         () =>
@@ -142,8 +192,14 @@ export async function executeRun(work: RunWork) {
               model: session.model,
               environment: session.environment,
               ...(submitted ? { input: run.input } : {}),
+              ...(toolSession ? { mcpServers: [toolSession.mcpServer] } : {}),
             },
-            credentials,
+            toolSession
+              ? {
+                  ...credentials,
+                  mcp: { [toolSession.mcpServer.name]: { headers: toolSession.mcpHeaders } },
+                }
+              : credentials,
             { signal },
           ),
         async (result) => {
@@ -285,7 +341,7 @@ export async function executeRun(work: RunWork) {
       ["admitted", "subscribing"].includes(state.run.phase)
     ) {
       await owned((tx, current) =>
-        saveRun(tx, current, { status: "failed", errorCode: "provider_failure" }),
+        saveRun(tx, current, { status: "failed", errorCode: failureCode ?? "provider_failure" }),
       );
     } else {
       errorCode ??= state.run.errorCode ?? "stream_disconnected";

@@ -32,6 +32,15 @@ const errors: Record<string, string> = {
   worker_lost: "The execution worker is no longer observing this run. Reconciliation is required.",
   deadline_exceeded: "The run deadline was reached; cancellation was requested.",
   output_limit: "Runtime output exceeded the supported limit.",
+  tools_key_required: "Add your Composio key in Tools, then send again.",
+  tools_not_connected:
+    "An app this bot uses isn't connected. Connect it in Tools, then send again.",
+  tools_multiple_accounts:
+    "More than one account is connected for an app this bot uses. Disconnect one in Tools, then send again.",
+  tools_key_rejected: "Composio rejected your key. Check it in Tools, then send again.",
+  tools_policy_mismatch:
+    "Composio didn't apply this bot's app limits, so nothing ran. Send again to retry.",
+  tools_unavailable: "Composio couldn't set up this bot's apps. Send again to retry.",
 };
 
 export const conversationDto = (row: ConversationRow): ConversationSummary => ({

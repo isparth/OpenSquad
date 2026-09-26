@@ -90,6 +90,7 @@ const routes: FastifyPluginAsyncZod<ConversationRoutesOptions> = async (app, opt
   const coordinator = runCoordinator(
     app.db,
     app.capabilities.runtime,
+    app.capabilities.tools,
     app.capabilities.storage,
     () => app.log.error("Runtime worker stopped; reconciliation may be required"),
     options.usageBackfill,
@@ -178,7 +179,7 @@ const routes: FastifyPluginAsyncZod<ConversationRoutesOptions> = async (app, opt
       const toolsKey = readToolsKey(request);
       const result = await admit(ownerId, request.params.id, request.body, toolsKey !== null);
       if (result.fresh) {
-        await coordinator.start(ownerId, result.run.id, key, "execute");
+        await coordinator.start(ownerId, result.run.id, key, "execute", toolsKey ?? undefined);
         if (result.sessionCreated && result.agentId)
           app.memoryUpdates.schedule(ownerId, result.agentId, request.params.id, key);
       }
