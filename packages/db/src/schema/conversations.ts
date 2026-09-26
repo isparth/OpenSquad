@@ -1,4 +1,5 @@
 import type {
+  AgentToolGrant,
   ConversationEventType,
   ConversationFileStatus,
   EnvironmentStatus,
@@ -105,6 +106,7 @@ export const runtimeSessions = pgTable(
       .notNull()
       .default("hosted"),
     environmentStatus: text("environment_status").$type<EnvironmentStatus>(),
+    toolGrants: jsonb("tool_grants").$type<AgentToolGrant[]>().notNull().default([]),
   },
   (table) => [
     uniqueIndex("runtime_sessions_conversation_idx").on(table.conversationId),

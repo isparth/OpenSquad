@@ -1,4 +1,5 @@
 import type {
+  AgentToolGrant,
   ConversationFile,
   ConversationMessage,
   ConversationSummary,
@@ -17,6 +18,7 @@ export interface AgentRecord {
   description: string;
   instructions: string;
   sandboxEnabled: boolean;
+  toolGrants: AgentToolGrant[];
   avatarUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -24,8 +26,13 @@ export interface AgentRecord {
 
 export type AgentInput = Pick<
   AgentRecord,
-  "name" | "label" | "description" | "instructions" | "sandboxEnabled"
+  "name" | "label" | "description" | "instructions" | "sandboxEnabled" | "toolGrants"
 >;
+
+const isToolGrant = (value: unknown): value is AgentToolGrant =>
+  isRecord(value) &&
+  typeof value.toolkit === "string" &&
+  (value.access === "read" || value.access === "write");
 
 function parseAgent(value: unknown): AgentRecord {
   if (!value || typeof value !== "object") throw new Error("Invalid bot response");
@@ -40,7 +47,10 @@ function parseAgent(value: unknown): AgentRecord {
   ) {
     throw new Error("Invalid bot response");
   }
-  return value as AgentRecord;
+  const toolGrants = row.toolGrants === undefined ? [] : row.toolGrants;
+  if (!Array.isArray(toolGrants) || !toolGrants.every(isToolGrant))
+    throw new Error("Invalid bot response");
+  return { ...(value as AgentRecord), toolGrants };
 }
 
 export interface Health {

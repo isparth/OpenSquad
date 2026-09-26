@@ -1,4 +1,5 @@
-import { boolean, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import type { AgentToolGrant } from "@opensquad/core";
+import { boolean, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const agents = pgTable("agents", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -9,6 +10,7 @@ export const agents = pgTable("agents", {
   avatarUrl: text("avatar_url"),
   instructions: text("instructions").notNull().default(""),
   sandboxEnabled: boolean("sandbox_enabled").notNull().default(false),
+  toolGrants: jsonb("tool_grants").$type<AgentToolGrant[]>().notNull().default([]),
   // External provider references only. Postgres stays the source of truth. SPEC section 9.
   sandboxExternalId: text("sandbox_external_id"),
   emailInboxExternalId: text("email_inbox_external_id"),

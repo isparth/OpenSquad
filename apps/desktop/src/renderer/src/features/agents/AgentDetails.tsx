@@ -121,6 +121,20 @@ export function AgentDetails({
         </p>
       </section>
       <section className="detail-section">
+        <h3>Apps</h3>
+        {agent.toolGrants.length ? (
+          <ul className="app-grant-list">
+            {agent.toolGrants.map((grant) => (
+              <li key={grant.toolkit}>
+                {grant.toolkit} — {grant.access === "write" ? "Read and write" : "Read"}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">None</p>
+        )}
+      </section>
+      <section className="detail-section">
         <h3>Memory</h3>
         <MemoryPanel agentId={agent.id} disabled={busy} onBusyChange={onBusyChange} />
       </section>

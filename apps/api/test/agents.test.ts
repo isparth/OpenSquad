@@ -22,6 +22,7 @@ describe("agents", () => {
       description: "Test agent",
       label: null,
       sandboxEnabled: false,
+      toolGrants: [],
     });
 
     const fetched = await app.inject({ method: "GET", url: `/agents/${agent.id}` });
@@ -47,6 +48,32 @@ describe("agents", () => {
     expect(created.statusCode).toBe(201);
     const agent = created.json();
     expect(agent.sandboxEnabled).toBe(true);
+    expect((await app.inject({ method: "DELETE", url: `/agents/${agent.id}` })).statusCode).toBe(
+      204,
+    );
+  });
+
+  it("creates an agent with tool grants stored sorted by toolkit", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/agents",
+      payload: {
+        name: "Apps bot",
+        toolGrants: [
+          { toolkit: "gmail", access: "write" },
+          { toolkit: "github", access: "read" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const agent = created.json();
+    expect(agent.toolGrants).toEqual([
+      { toolkit: "github", access: "read" },
+      { toolkit: "gmail", access: "write" },
+    ]);
+    expect(
+      (await app.inject({ method: "GET", url: `/agents/${agent.id}` })).json().toolGrants,
+    ).toEqual(agent.toolGrants);
     expect((await app.inject({ method: "DELETE", url: `/agents/${agent.id}` })).statusCode).toBe(
       204,
     );

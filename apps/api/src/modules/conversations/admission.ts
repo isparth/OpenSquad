@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AgentRuntimeProvider } from "@opensquad/core";
+import { type AgentRuntimeProvider, sortToolGrants } from "@opensquad/core";
 import {
   agents,
   conversationMessages,
@@ -118,12 +118,17 @@ export function runAdmission(
         (session.provider !== config.provider ||
           session.model !== config.model ||
           session.instructions !== agent.instructions ||
-          session.environment !== environment)
+          session.environment !== environment ||
+          JSON.stringify(sortToolGrants(session.toolGrants)) !==
+            JSON.stringify(sortToolGrants(agent.toolGrants)))
       )
         throw new ConversationError(
           409,
           "Bot or runtime settings changed; start a new conversation",
         );
+      // Temporary until S5b-2 wires grants into runtime sessions; refuse rather than ignore them.
+      if (agent.toolGrants.length > 0)
+        throw new ConversationError(409, "This bot's apps can't be used in chats yet");
       if (!session) {
         if (environment === "hosted" && !config.features.hostedEnvironment)
           throw new ConversationError(
@@ -145,6 +150,7 @@ export function runAdmission(
             instructions: agent.instructions,
             memorySnapshot: await memorySnapshot(tx, ownerId, agent.id),
             environment,
+            toolGrants: agent.toolGrants,
           })
           .returning();
       }

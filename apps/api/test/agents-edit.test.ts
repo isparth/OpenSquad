@@ -84,6 +84,25 @@ describe("agent editing", () => {
     { instructions: "a".repeat(20001) },
     { sandboxEnabled: "true" },
     { sandboxEnabled: 1 },
+    { toolGrants: null },
+    { toolGrants: [{ toolkit: "github" }] },
+    { toolGrants: [{ toolkit: "github", access: "admin" }] },
+    { toolGrants: [{ toolkit: "GitHub", access: "read" }] },
+    { toolGrants: [{ toolkit: "-github", access: "read" }] },
+    { toolGrants: [{ toolkit: "a".repeat(65), access: "read" }] },
+    { toolGrants: [{ toolkit: "github", access: "read", connectionId: "ca_1" }] },
+    {
+      toolGrants: [
+        { toolkit: "github", access: "read" },
+        { toolkit: "github", access: "write" },
+      ],
+    },
+    {
+      toolGrants: Array.from({ length: 21 }, (_, index) => ({
+        toolkit: `app${index}`,
+        access: "read",
+      })),
+    },
     { name: null },
     { ownerId: "someone-else" },
     { avatarUrl: "https://invalid.example/image" },
@@ -111,13 +130,55 @@ describe("agent editing", () => {
     }
   });
 
+  it("replaces tool grants by themselves, sorted by toolkit, leaving other fields alone", async () => {
+    const agent = await seed();
+    const grants = Array.from({ length: 20 }, (_, index) => ({
+      toolkit: `app_${String(19 - index).padStart(2, "0")}`,
+      access: index % 2 ? "read" : "write",
+    }));
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/agents/${agent.id}`,
+      payload: { toolGrants: grants },
+    });
+    expect(response.statusCode).toBe(200);
+    const sorted = [...grants].reverse();
+    expect(response.json()).toMatchObject({
+      name: "Alice",
+      instructions: "Cite sources",
+      sandboxEnabled: false,
+      toolGrants: sorted,
+    });
+    expect((await agentsService(app.db).get("dev-user", agent.id))?.toolGrants).toEqual(sorted);
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/agents/${agent.id}`,
+      payload: { toolGrants: [] },
+    });
+    expect(cleared.json().toolGrants).toEqual([]);
+  });
+
+  it("keeps tool grants when a PATCH omits them", async () => {
+    const agent = await seed();
+    const toolGrants = [{ toolkit: "github", access: "read" }];
+    await app.inject({ method: "PATCH", url: `/agents/${agent.id}`, payload: { toolGrants } });
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/agents/${agent.id}`,
+      payload: { name: "Renamed" },
+    });
+    expect(response.statusCode).toBe(200);
+    const fetched = await app.inject({ method: "GET", url: `/agents/${agent.id}` });
+    expect(fetched.json()).toMatchObject({ name: "Renamed", toolGrants });
+  });
+
   it("returns 404 for missing and other-owner agents without modifying them", async () => {
     const other = await seed("other-user");
     for (const id of [randomUUID(), other.id]) {
       const response = await app.inject({
         method: "PATCH",
         url: `/agents/${id}`,
-        payload: { name: "No" },
+        payload: { name: "No", toolGrants: [{ toolkit: "github", access: "write" }] },
       });
       expect(response.statusCode).toBe(404);
     }

@@ -26,6 +26,7 @@ const alice: AgentRecord = {
   description: "Find reliable sources.",
   instructions: "Cite your sources.",
   sandboxEnabled: false,
+  toolGrants: [],
   avatarUrl: null,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",
@@ -48,6 +49,7 @@ beforeEach(() => {
     { name: "notes", scope: "agent", content: "", version: 0, limit: 4000, updatedAt: null },
   ]);
   api.listConversations.mockResolvedValue({ items: [], nextCursor: null });
+  vi.mocked(window.opensquad.listToolConnections).mockResolvedValue({ items: [] });
   vi.mocked(window.opensquad.getRuntimeKeyStatus).mockResolvedValue({
     state: "unavailable",
     reason: "not-configured",
@@ -173,6 +175,7 @@ describe("bot management", () => {
       description: "A helpful bot",
       instructions: "",
       sandboxEnabled: false,
+      toolGrants: [],
     });
   });
 
@@ -193,6 +196,7 @@ describe("bot management", () => {
         description: "Find reliable sources.",
         instructions: "Cite your sources.",
         sandboxEnabled: true,
+        toolGrants: [],
       }),
     );
   });
@@ -215,8 +219,130 @@ describe("bot management", () => {
         description: "Find reliable sources.",
         instructions: "Cite your sources.",
         sandboxEnabled: false,
+        toolGrants: [],
       }),
     );
+  });
+
+  it("shows no apps in bot details, or each granted app with its access", async () => {
+    await openAliceProfile();
+    const apps = screen.getByRole("heading", { name: "Apps" }).parentElement as HTMLElement;
+    expect(within(apps).getByText("None")).toHaveClass("muted");
+    cleanup();
+    api.getAgent.mockResolvedValue({
+      ...alice,
+      toolGrants: [
+        { toolkit: "github", access: "read" },
+        { toolkit: "gmail", access: "write" },
+      ],
+    });
+    await openAliceProfile();
+    const granted = screen.getByRole("heading", { name: "Apps" }).parentElement as HTMLElement;
+    expect(within(granted).getByText("github — Read")).toBeInTheDocument();
+    expect(within(granted).getByText("gmail — Read and write")).toBeInTheDocument();
+  });
+
+  it("sets app access per connected app and saves only enabled apps", async () => {
+    const connection = (id: string, toolkit: string, status = "active") => ({
+      id,
+      toolkit,
+      status,
+      createdAt: "2026-09-20T00:00:00.000Z",
+    });
+    vi.mocked(window.opensquad.listToolConnections).mockResolvedValue({
+      items: [
+        connection("ca_1", "github"),
+        connection("ca_2", "github"),
+        connection("ca_3", "slack"),
+        connection("ca_4", "notion", "pending"),
+      ],
+    } as never);
+    api.getAgent.mockResolvedValue({
+      ...alice,
+      toolGrants: [
+        { toolkit: "github", access: "read" },
+        { toolkit: "linear", access: "write" },
+      ],
+    });
+    await openAliceProfile();
+    api.updateAgent.mockResolvedValue(alice);
+    fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
+    const github = await screen.findByRole("combobox", { name: "Access for github" });
+    const slack = screen.getByRole("combobox", { name: "Access for slack" });
+    const linear = screen.getByRole("combobox", { name: "Access for linear" });
+    expect(screen.getAllByRole("combobox", { name: /^Access for / })).toHaveLength(3);
+    expect(screen.queryByRole("combobox", { name: "Access for notion" })).not.toBeInTheDocument();
+    expect(github).toHaveValue("read");
+    expect(slack).toHaveValue("off");
+    expect(linear).toHaveValue("write");
+    expect(screen.getByText("Not connected")).toBeInTheDocument();
+    expect(screen.getByText("Changes apply to new conversations.")).toHaveClass("muted");
+    const warning =
+      "This bot can create and change things in these apps without asking you first. Actions Composio marks as destructive, like deleting, are always blocked.";
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    fireEvent.change(linear, { target: { value: "off" } });
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Access for linear" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
+    fireEvent.change(slack, { target: { value: "write" } });
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(api.updateAgent).toHaveBeenCalledWith(
+        alice.id,
+        expect.objectContaining({
+          toolGrants: [
+            { toolkit: "github", access: "read" },
+            { toolkit: "slack", access: "write" },
+          ],
+        }),
+      ),
+    );
+  });
+
+  it.each([
+    [
+      new Error("tools credential unavailable"),
+      "Add your Composio key in Tools to see connected apps.",
+    ],
+    [null, "Connect apps in Tools first."],
+    [new Error("service unavailable"), "Couldn't load connected apps."],
+  ])("explains why no apps are listed (%#)", async (failure, copy) => {
+    if (failure) vi.mocked(window.opensquad.listToolConnections).mockRejectedValue(failure);
+    render(
+      <RuntimeKeyProvider>
+        <BotsPage />
+      </RuntimeKeyProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "New bot" }));
+    expect(await screen.findByText(copy)).toHaveClass("muted");
+    expect(screen.queryByRole("combobox", { name: /^Access for / })).not.toBeInTheDocument();
+    expect(screen.queryByText("Changes apply to new conversations.")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Bot name"), { target: { value: "Bob" } });
+    api.createAgent.mockResolvedValue(alice);
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    await waitFor(() =>
+      expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ toolGrants: [] })),
+    );
+  });
+
+  it("keeps granted apps editable without a tools key and asks for the key", async () => {
+    vi.mocked(window.opensquad.listToolConnections).mockRejectedValue(
+      new Error("tools credential unavailable"),
+    );
+    api.getAgent.mockResolvedValue({
+      ...alice,
+      toolGrants: [{ toolkit: "github", access: "read" }],
+    });
+    await openAliceProfile();
+    fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
+    expect(
+      await screen.findByText("Add your Composio key in Tools to see connected apps."),
+    ).toHaveClass("muted");
+    expect(screen.getByRole("combobox", { name: "Access for github" })).toHaveValue("read");
+    expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connect apps in Tools first.")).not.toBeInTheDocument();
+    expect(screen.getByText("Changes apply to new conversations.")).toBeInTheDocument();
   });
 
   it("preserves form values on save failure and blocks duplicate submits while pending", async () => {

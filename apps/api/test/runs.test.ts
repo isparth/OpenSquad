@@ -3,6 +3,7 @@ import type { RuntimeEvent, RuntimeMessage, RuntimeTurn } from "@opensquad/core"
 import {
   agents,
   conversationEvents,
+  conversationMessages,
   conversationRuns,
   conversations,
   participants,
@@ -104,6 +105,26 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       payload: { sandboxEnabled },
     });
     expect(response.statusCode).toBe(200);
+  }
+  async function setToolGrants(toolGrants: { toolkit: string; access: "read" | "write" }[]) {
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/agents/${agentId}`,
+      payload: { toolGrants },
+    });
+    expect(response.statusCode).toBe(200);
+  }
+  async function completeFirstTurn() {
+    runtime.listTurns.mockImplementation(async function* () {
+      yield root("succeeded");
+    });
+    runtime.listMessages.mockImplementation(async function* () {
+      yield savedMessage("user", "saved-user", "Hello");
+      yield savedMessage("assistant", "saved-assistant", "First reply");
+    });
+    const first = await send();
+    expect(first.statusCode).toBe(202);
+    await waitStatus(first.json().run.id, "succeeded");
   }
   async function waitStatus(id: string, status: string) {
     await vi.waitFor(
@@ -564,6 +585,80 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
         .from(conversationRuns)
         .where(eq(conversationRuns.conversationId, conversationId)),
     ).toHaveLength(1);
+  });
+
+  it("snapshots no tool grants and rejects older conversations after grants change", async () => {
+    await completeFirstTurn();
+    const [snapshot] = await app.db
+      .select()
+      .from(runtimeSessions)
+      .where(eq(runtimeSessions.conversationId, conversationId));
+    expect(snapshot?.toolGrants).toEqual([]);
+    await setToolGrants([{ toolkit: "github", access: "read" }]);
+
+    const response = await send();
+    expect(response.statusCode).toBe(409);
+    expect(response.json().message).toBe(
+      "Bot or runtime settings changed; start a new conversation",
+    );
+    expect(
+      await app.db
+        .select()
+        .from(conversationRuns)
+        .where(eq(conversationRuns.conversationId, conversationId)),
+    ).toHaveLength(1);
+  });
+
+  it("refuses follow-up turns once snapshotted grants match, regardless of order", async () => {
+    await completeFirstTurn();
+    await app.db
+      .update(runtimeSessions)
+      .set({
+        toolGrants: [
+          { toolkit: "gmail", access: "write" },
+          { toolkit: "github", access: "read" },
+        ],
+      })
+      .where(eq(runtimeSessions.conversationId, conversationId));
+    await setToolGrants([
+      { toolkit: "github", access: "read" },
+      { toolkit: "gmail", access: "write" },
+    ]);
+    const messagesBefore = await app.db
+      .select()
+      .from(conversationMessages)
+      .where(eq(conversationMessages.conversationId, conversationId));
+
+    const followup = await send(randomUUID(), "Second message");
+    expect(followup.statusCode).toBe(409);
+    expect(followup.json().message).toBe("This bot's apps can't be used in chats yet");
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect(runtime.sendInput).not.toHaveBeenCalled();
+    expect(
+      await app.db
+        .select()
+        .from(conversationRuns)
+        .where(eq(conversationRuns.conversationId, conversationId)),
+    ).toHaveLength(1);
+    expect(
+      await app.db
+        .select()
+        .from(conversationMessages)
+        .where(eq(conversationMessages.conversationId, conversationId)),
+    ).toHaveLength(messagesBefore.length);
+  });
+
+  it("refuses to start a conversation with a bot that has tool grants", async () => {
+    await setToolGrants([{ toolkit: "github", access: "read" }]);
+
+    const response = await send();
+    expect(response.statusCode).toBe(409);
+    expect(response.json().message).toBe("This bot's apps can't be used in chats yet");
+    expect(runtime.createSession).not.toHaveBeenCalled();
+    for (const table of [runtimeSessions, conversationRuns, conversationMessages])
+      expect(
+        await app.db.select().from(table).where(eq(table.conversationId, conversationId)),
+      ).toHaveLength(0);
   });
 
   it("reports hosted session drift before checking support for the new environment", async () => {

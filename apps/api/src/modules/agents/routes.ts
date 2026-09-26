@@ -6,6 +6,18 @@ import { agentsService } from "./service.js";
 
 const idParams = z.object({ id: z.uuid() });
 
+const toolGrantSchema = z.strictObject({
+  toolkit: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+  access: z.enum(["read", "write"]),
+});
+const toolGrantsSchema = z
+  .array(toolGrantSchema)
+  .max(20)
+  .refine(
+    (grants) => new Set(grants.map((grant) => grant.toolkit)).size === grants.length,
+    "Each app can be granted once",
+  );
+
 const agentSchema = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -14,6 +26,7 @@ const agentSchema = z.object({
   avatarUrl: z.string().nullable(),
   instructions: z.string(),
   sandboxEnabled: z.boolean(),
+  toolGrants: z.array(z.object({ toolkit: z.string(), access: z.enum(["read", "write"]) })),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -29,6 +42,7 @@ const editableFields = {
   description: z.string().max(2000),
   instructions: z.string().max(20000),
   sandboxEnabled: z.boolean(),
+  toolGrants: toolGrantsSchema,
 };
 const createAgentSchema = z.object({
   ...editableFields,
@@ -36,6 +50,7 @@ const createAgentSchema = z.object({
   description: editableFields.description.default(""),
   instructions: editableFields.instructions.default(""),
   sandboxEnabled: editableFields.sandboxEnabled.default(false),
+  toolGrants: editableFields.toolGrants.default([]),
 });
 const updateAgentSchema = z
   .strictObject(editableFields)

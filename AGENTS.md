@@ -112,6 +112,7 @@ Things that look wrong but aren't:
 - The Composio key is BYOK: a second dev-only vault file `tools-key.v1.bin`, sent only by main (`main/tools-commands.ts`) as `X-OpenSquad-Tools-Key` on `/tools/*`, redacted in API logs, never stored server-side. A rejected key is 422 `tools_key_rejected`. Main validates and opens the `https://connect.composio.dev` Connect Link itself; the renderer only sees the connection id.
 - Composio silently ignores wrong filter field names and then exposes every tool, including destructive ones. `createSession` (for S5b, not wired yet) therefore verifies the echoed toolkits, per-toolkit tags, workbench/manage-connections/premium flags, the three meta tools and the MCP URL, deleting the session and failing closed with `policy_mismatch` on any difference.
 - Focused checks: `pnpm --filter @opensquad/plugin-composio test`, `pnpm --filter @opensquad/api exec vitest run test/tools.test.ts` and `pnpm --filter @opensquad/desktop exec vitest run test/tools-commands.test.ts test/ToolsDialog.test.tsx`.
+- S5b-1: per-bot `toolGrants` (`[{ toolkit, access: "read" | "write" }]`, max 20, unique, stored sorted; Off = absent, no connection id) live on `agents.tool_grants`, are saved via agent create/PATCH from the bot form's Apps section, snapshotted on `runtime_sessions.tool_grants` and compared canonically in the drift 409. Until S5b-2 wires them into runtime sessions, admission refuses to create a new session for a bot with grants (409 "This bot's apps can't be used in chats yet").
 
 ## Wave 0 decisions (2026-09-15)
 
