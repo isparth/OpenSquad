@@ -114,6 +114,7 @@ export async function executeRun(work: RunWork) {
         }
         return { ...grant, connectionId: matches[0].id };
       });
+      signal.throwIfAborted();
       const result = await tools.createSession(toolsCredentials, ownerId, resolved, { signal });
       await owned(async (tx) => {
         await tx
@@ -183,6 +184,10 @@ export async function executeRun(work: RunWork) {
       const toolSession = session.toolGrants.length
         ? await openToolSession(session.id, session.toolGrants)
         : null;
+      if (toolSession && (await store.get(ownerId, runId)).run.cancelRequested) {
+        await owned((tx, current) => saveRun(tx, current, { status: "cancelled" }));
+        return;
+      }
       await mutate(
         "creating",
         () =>

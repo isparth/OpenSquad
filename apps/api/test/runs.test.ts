@@ -964,8 +964,10 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     expect((await sessionRow())?.toolsExternalId).toBe("tool-session-test");
   });
 
-  it("fails with tools_key_required when the worker has no tools key", async () => {
-    await enableApps();
+  async function runWorker(
+    signal = new AbortController().signal,
+    toolsCredentials?: { apiKey: string },
+  ) {
     const admitted = await runAdmission(app.db, {
       provider: runtime.name,
       model: "gpt-6-luna",
@@ -980,10 +982,21 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       runId: admitted.run.id,
       token: token as string,
       credentials: { apiKey: "dummy-user-key" },
-      signal: new AbortController().signal,
+      ...(toolsCredentials ? { toolsCredentials } : {}),
+      signal,
       mode: "execute",
     });
-    const run = (await app.inject({ method: "GET", url: `/runs/${admitted.run.id}` })).json().run;
+    const [row] = await app.db
+      .select()
+      .from(conversationRuns)
+      .where(eq(conversationRuns.id, admitted.run.id));
+    return row;
+  }
+
+  it("fails with tools_key_required when the worker has no tools key", async () => {
+    await enableApps();
+    const row = await runWorker();
+    const run = (await app.inject({ method: "GET", url: `/runs/${row?.id}` })).json().run;
     expect(run.status).toBe("failed");
     expect(run.active).toBe(false);
     expect(run.error).toEqual({
@@ -992,6 +1005,40 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     });
     expect(tools.listConnections).not.toHaveBeenCalled();
     expect(runtime.createSession).not.toHaveBeenCalled();
+  });
+
+  it("stops before creating the runtime session when cancelled during tool setup", async () => {
+    await enableApps();
+    connectApps();
+    let release: (value: typeof toolSession) => void = () => {};
+    tools.createSession.mockReturnValue(new Promise((resolve) => (release = resolve)));
+
+    const response = await send(randomUUID(), "Hello", toolsHeaders);
+    expect(response.statusCode).toBe(202);
+    const id = response.json().run.id;
+    await vi.waitFor(() => expect(tools.createSession).toHaveBeenCalled());
+    expect(
+      (await app.inject({ method: "POST", url: `/runs/${id}/cancel`, headers })).statusCode,
+    ).toBe(202);
+    release(toolSession);
+    await waitStatus(id, "cancelled");
+    expect(runtime.createSession).not.toHaveBeenCalled();
+  });
+
+  it("checks the abort signal between listing connections and creating the tool session", async () => {
+    await enableApps();
+    const controller = new AbortController();
+    tools.listConnections.mockImplementation(async () => {
+      controller.abort();
+      return [
+        connection("github-active", "github", "active"),
+        connection("gmail-active", "gmail", "active"),
+      ];
+    });
+
+    const row = await runWorker(controller.signal, { apiKey: "dummy-tools-key" });
+    expect(row?.errorCode).toBe("worker_lost");
+    expect(tools.createSession).not.toHaveBeenCalled();
   });
 
   it("reports hosted session drift before checking support for the new environment", async () => {
