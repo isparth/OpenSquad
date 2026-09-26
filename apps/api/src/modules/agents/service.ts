@@ -1,3 +1,4 @@
+import type { AgentToolGrant } from "@opensquad/core";
 import {
   type AgentRow,
   agents,
@@ -19,10 +20,17 @@ export class AgentRunConflict extends Error {
 }
 
 export type AgentUpdate = {
-  [Field in "name" | "label" | "description" | "instructions" | "sandboxEnabled"]?:
+  [Field in "name" | "label" | "description" | "instructions" | "sandboxEnabled" | "toolGrants"]?:
     | AgentRow[Field]
     | undefined;
 };
+
+/** Sorted by toolkit so equal grant sets store and compare byte-identically. */
+export const sortToolGrants = (grants: AgentToolGrant[]): AgentToolGrant[] =>
+  grants
+    .map(({ toolkit, access }) => ({ toolkit, access }))
+    .sort((a, b) => (a.toolkit < b.toolkit ? -1 : a.toolkit > b.toolkit ? 1 : 0));
+
 const nextUpdatedAt = sql`greatest(clock_timestamp(), ${agents.updatedAt} + interval '1 millisecond')`;
 
 /** Data access for agents. Routes call this; this never touches HTTP. */
@@ -40,7 +48,10 @@ export function agentsService(db: Database) {
     },
 
     create: async (input: NewAgentRow): Promise<AgentRow> => {
-      const [row] = await db.insert(agents).values(input).returning();
+      const values = input.toolGrants
+        ? { ...input, toolGrants: sortToolGrants(input.toolGrants) }
+        : input;
+      const [row] = await db.insert(agents).values(values).returning();
       if (!row) throw new Error("insert returned no row");
       return row;
     },
@@ -48,7 +59,11 @@ export function agentsService(db: Database) {
     update: async (ownerId: string, id: string, input: AgentUpdate): Promise<AgentRow | null> => {
       const [row] = await db
         .update(agents)
-        .set({ ...input, updatedAt: nextUpdatedAt })
+        .set({
+          ...input,
+          ...(input.toolGrants && { toolGrants: sortToolGrants(input.toolGrants) }),
+          updatedAt: nextUpdatedAt,
+        })
         .where(and(eq(agents.id, id), eq(agents.ownerId, ownerId)))
         .returning();
       return row ?? null;
