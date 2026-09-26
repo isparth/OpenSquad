@@ -707,6 +707,21 @@ describe("chat view", () => {
     expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
   });
 
+  it("points to Tools when the bot's apps need the Composio key", async () => {
+    vi.mocked(window.opensquad.sendMessage).mockRejectedValueOnce(new Error("tools key required"));
+    renderChat();
+    const source = await selectConversation();
+    source.emit("conversation.snapshot", snapshot());
+    const box = screen.getByLabelText("Message");
+    fireEvent.change(box, { target: { value: "hello" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+
+    expect(
+      await screen.findByText("This bot uses apps. Add your Composio key in Tools."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
   it("hides settings guidance when a conflicting send's run reaches the thread", async () => {
     vi.mocked(window.opensquad.sendMessage).mockRejectedValueOnce(new Error("request conflict"));
     renderChat();

@@ -538,6 +538,9 @@ function Thread({
               If you changed this bot's settings, start a new conversation to keep chatting.
             </p>
           )}
+          {sendError === "tools key required" && (
+            <p className="muted">This bot uses apps. Add your Composio key in Tools.</p>
+          )}
           <button type="button" className="button secondary" onClick={() => void send(pending)}>
             Retry
           </button>
