@@ -136,6 +136,8 @@ export async function executeRun(work: RunWork) {
     const result = await provider(() =>
       tools.createSession(toolsCredentials, ownerId, resolved, { signal }),
     );
+    // If the run is cancelled or fails before OpenAI, this session is left unreconciled (and a
+    // retry overwrites the reference): Composio sessions are free and carry only the policy.
     await owned(async (tx) => {
       await tx
         .update(runtimeSessions)
@@ -237,7 +239,6 @@ export async function executeRun(work: RunWork) {
         },
         submitted ? "observing" : "subscribing",
       );
-      // A Composio session created above is left unreconciled: it is free and carries only the policy.
       if (creation === cancelledBeforeCreate) return;
       ({ run, session } = await store.get(ownerId, runId));
     }
