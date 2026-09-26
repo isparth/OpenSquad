@@ -3,6 +3,7 @@ import type { FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { readRuntimeKey } from "../../auth/runtime-key.js";
+import { readToolsKey } from "../../auth/tools-key.js";
 import { runAdmission } from "./admission.js";
 import { runCoordinator } from "./coordinator.js";
 import { ConversationError, runDto } from "./dto.js";
@@ -174,7 +175,8 @@ const routes: FastifyPluginAsyncZod<ConversationRoutesOptions> = async (app, opt
     async (request, reply) => {
       const key = credentials(request);
       const ownerId = request.userId as string;
-      const result = await admit(ownerId, request.params.id, request.body);
+      const toolsKey = readToolsKey(request);
+      const result = await admit(ownerId, request.params.id, request.body, toolsKey !== null);
       if (result.fresh) {
         await coordinator.start(ownerId, result.run.id, key, "execute");
         if (result.sessionCreated && result.agentId)

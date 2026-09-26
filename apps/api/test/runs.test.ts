@@ -15,13 +15,14 @@ import type { App } from "../src/app.js";
 import { agentsService } from "../src/modules/agents/service.js";
 import { conversationsService } from "../src/modules/conversations/service.js";
 import { testDatabaseUrl } from "./database-url.js";
-import { FakeRuntimeProvider } from "./fakes.js";
+import { FakeRuntimeProvider, FakeToolsProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
 import { RuntimeQueue } from "./runtime-queue.js";
 
 describe("runtime HTTP execution", () => {
   let app: App;
   let runtime: FakeRuntimeProvider;
+  let tools: FakeToolsProvider;
   let queue: RuntimeQueue;
   let conversationId: string;
   let agentId: string;
@@ -64,6 +65,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
   });
   beforeEach(async () => {
     runtime = new FakeRuntimeProvider();
+    tools = new FakeToolsProvider();
     queue = new RuntimeQueue();
     runtime.createSession.mockResolvedValue(session);
     runtime.events.mockResolvedValue(queue);
@@ -73,7 +75,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     runtime.listMessages.mockImplementation(async function* () {
       yield* [];
     });
-    app = await createTestApp({ capabilities: { runtime } });
+    app = await createTestApp({ capabilities: { runtime, tools } });
     agentId = (
       await agentsService(app.db).create({ ownerId: "dev-user", name: "HTTP runtime test" })
     ).id;
@@ -91,13 +93,14 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       await database.close();
     }
   });
-  const send = (clientRequestId = randomUUID(), text = "Hello") =>
+  const send = (clientRequestId = randomUUID(), text = "Hello", extra = {}) =>
     app.inject({
       method: "POST",
       url: `/conversations/${conversationId}/messages`,
-      headers,
+      headers: { ...headers, ...extra },
       payload: { text, clientRequestId },
     });
+  const toolsHeaders = { "x-opensquad-tools-key": "dummy-tools-key" };
   async function setSandboxEnabled(sandboxEnabled: boolean) {
     const response = await app.inject({
       method: "PATCH",
@@ -609,7 +612,75 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     ).toHaveLength(1);
   });
 
-  it("refuses follow-up turns once snapshotted grants match, regardless of order", async () => {
+  async function expectNothingAdmitted() {
+    for (const table of [runtimeSessions, conversationRuns, conversationMessages])
+      expect(
+        await app.db.select().from(table).where(eq(table.conversationId, conversationId)),
+      ).toHaveLength(0);
+  }
+
+  it("requires the tools key before starting a conversation with a bot that has apps", async () => {
+    runtime.features.mcp = true;
+    await setToolGrants([{ toolkit: "github", access: "read" }]);
+
+    const response = await send();
+    expect(response.statusCode).toBe(428);
+    expect(response.json().message).toBe("Add your Composio key in Tools to use this bot's apps");
+    await expectNothingAdmitted();
+    expect(runtime.createSession).not.toHaveBeenCalled();
+    expect(tools.listConnections).not.toHaveBeenCalled();
+  });
+
+  it("refuses apps on a runtime without MCP support before checking the tools key", async () => {
+    await setToolGrants([{ toolkit: "github", access: "read" }]);
+
+    const response = await send(randomUUID(), "Hello", toolsHeaders);
+    expect(response.statusCode).toBe(409);
+    expect(response.json().message).toBe("This runtime does not support apps");
+    await expectNothingAdmitted();
+  });
+
+  it("admits a conversation with apps when the tools key is present", async () => {
+    runtime.features.mcp = true;
+    await setToolGrants([{ toolkit: "github", access: "read" }]);
+
+    const response = await send(randomUUID(), "Hello", toolsHeaders);
+    expect(response.statusCode).toBe(202);
+    const [snapshot] = await app.db
+      .select()
+      .from(runtimeSessions)
+      .where(eq(runtimeSessions.conversationId, conversationId));
+    expect(snapshot?.toolGrants).toEqual([{ toolkit: "github", access: "read" }]);
+  });
+
+  it("requires the tools key while an existing session with apps has no provider reference", async () => {
+    runtime.features.mcp = true;
+    await setToolGrants([{ toolkit: "github", access: "read" }]);
+    const [agentMember] = await app.db
+      .select()
+      .from(participants)
+      .where(and(eq(participants.conversationId, conversationId), eq(participants.kind, "agent")));
+    await app.db.insert(runtimeSessions).values({
+      conversationId,
+      agentParticipantId: agentMember?.id as string,
+      provider: "fake-runtime",
+      model: "gpt-6-luna",
+      instructions: "",
+      environment: "none",
+      toolGrants: [{ toolkit: "github", access: "read" }],
+    });
+
+    const response = await send();
+    expect(response.statusCode).toBe(428);
+    expect(
+      await app.db
+        .select()
+        .from(conversationRuns)
+        .where(eq(conversationRuns.conversationId, conversationId)),
+    ).toHaveLength(0);
+  });
+
+  it("does not require the tools key for follow-up turns once the session exists", async () => {
     await completeFirstTurn();
     await app.db
       .update(runtimeSessions)
@@ -624,41 +695,49 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       { toolkit: "github", access: "read" },
       { toolkit: "gmail", access: "write" },
     ]);
-    const messagesBefore = await app.db
-      .select()
-      .from(conversationMessages)
-      .where(eq(conversationMessages.conversationId, conversationId));
+    const queues: RuntimeQueue[] = [];
+    runtime.events.mockImplementation(async () => {
+      const next = new RuntimeQueue();
+      queues.push(next);
+      return next;
+    });
+    runtime.sendInput.mockImplementation(async () => {
+      const activeQueue = queues[0];
+      if (!activeQueue) throw new Error("Subscription is missing");
+      activeQueue.emit(turn("running", "followup-turn"));
+      activeQueue.emit(turn("succeeded", "followup-turn"));
+    });
 
     const followup = await send(randomUUID(), "Second message");
-    expect(followup.statusCode).toBe(409);
-    expect(followup.json().message).toBe("This bot's apps can't be used in chats yet");
+    expect(followup.statusCode).toBe(202);
+    await waitStatus(followup.json().run.id, "succeeded");
     expect(runtime.createSession).toHaveBeenCalledOnce();
-    expect(runtime.sendInput).not.toHaveBeenCalled();
-    expect(
-      await app.db
-        .select()
-        .from(conversationRuns)
-        .where(eq(conversationRuns.conversationId, conversationId)),
-    ).toHaveLength(1);
-    expect(
-      await app.db
-        .select()
-        .from(conversationMessages)
-        .where(eq(conversationMessages.conversationId, conversationId)),
-    ).toHaveLength(messagesBefore.length);
+    expect(runtime.sendInput.mock.calls[0]?.[2]).toEqual({ apiKey: "dummy-user-key" });
+    expect(tools.listConnections).not.toHaveBeenCalled();
+    expect(tools.createSession).not.toHaveBeenCalled();
   });
 
-  it("refuses to start a conversation with a bot that has tool grants", async () => {
-    await setToolGrants([{ toolkit: "github", access: "read" }]);
+  it("ignores the tools key for bots without apps", async () => {
+    runtime.listTurns.mockImplementation(async function* () {
+      yield root("succeeded");
+    });
+    runtime.listMessages.mockImplementation(async function* () {
+      yield savedMessage("user", "saved-user", "Hello");
+      yield savedMessage("assistant", "saved-assistant", "Reply");
+    });
 
-    const response = await send();
-    expect(response.statusCode).toBe(409);
-    expect(response.json().message).toBe("This bot's apps can't be used in chats yet");
-    expect(runtime.createSession).not.toHaveBeenCalled();
-    for (const table of [runtimeSessions, conversationRuns, conversationMessages])
-      expect(
-        await app.db.select().from(table).where(eq(table.conversationId, conversationId)),
-      ).toHaveLength(0);
+    const response = await send(randomUUID(), "Hello", toolsHeaders);
+    expect(response.statusCode).toBe(202);
+    await waitStatus(response.json().run.id, "succeeded");
+    expect(runtime.createSession.mock.calls[0]?.[0]).toEqual({
+      instructions: expectedAutoMemoryInstructions,
+      model: "gpt-6-luna",
+      environment: "none",
+      input: "Hello",
+    });
+    expect(runtime.createSession.mock.calls[0]?.[1]).toEqual({ apiKey: "dummy-user-key" });
+    expect(tools.listConnections).not.toHaveBeenCalled();
+    expect(tools.createSession).not.toHaveBeenCalled();
   });
 
   it("reports hosted session drift before checking support for the new environment", async () => {

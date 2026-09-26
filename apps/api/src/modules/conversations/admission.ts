@@ -26,6 +26,7 @@ export function runAdmission(
     ownerId: string,
     conversationId: string,
     input: { text: string; clientRequestId: string },
+    toolsKey = false,
   ) =>
     db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 0))`);
@@ -126,9 +127,12 @@ export function runAdmission(
           409,
           "Bot or runtime settings changed; start a new conversation",
         );
-      // Temporary until S5b-2 wires grants into runtime sessions; refuse rather than ignore them.
-      if (agent.toolGrants.length > 0)
-        throw new ConversationError(409, "This bot's apps can't be used in chats yet");
+      if ((session?.toolGrants ?? agent.toolGrants).length > 0 && !session?.externalId) {
+        if (!config.features.mcp)
+          throw new ConversationError(409, "This runtime does not support apps");
+        if (!toolsKey)
+          throw new ConversationError(428, "Add your Composio key in Tools to use this bot's apps");
+      }
       if (!session) {
         if (environment === "hosted" && !config.features.hostedEnvironment)
           throw new ConversationError(
