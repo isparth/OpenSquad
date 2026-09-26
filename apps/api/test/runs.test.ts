@@ -1014,19 +1014,23 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
   ])("cancels atomically just before creating the %s session", async (_kind, sandbox) => {
     await setSandboxEnabled(sandbox);
     const transaction = app.db.transaction.bind(app.db);
-    const row = await runWorker(undefined, undefined, (runId) => {
-      let calls = 0;
-      vi.spyOn(app.db, "transaction").mockImplementation(async (...args) => {
-        // The worker's first transaction reads the run; the second is the creating pre-check.
-        if (++calls === 2)
-          await app.db
-            .update(conversationRuns)
-            .set({ cancelRequested: true })
-            .where(eq(conversationRuns.id, runId));
-        return transaction(...args);
+    let row: Awaited<ReturnType<typeof runWorker>>;
+    try {
+      row = await runWorker(undefined, undefined, (runId) => {
+        let calls = 0;
+        vi.spyOn(app.db, "transaction").mockImplementation(async (...args) => {
+          // The worker's first transaction reads the run; the second is the creating pre-check.
+          if (++calls === 2)
+            await app.db
+              .update(conversationRuns)
+              .set({ cancelRequested: true })
+              .where(eq(conversationRuns.id, runId));
+          return transaction(...args);
+        });
       });
-    });
-    vi.mocked(app.db.transaction).mockRestore();
+    } finally {
+      vi.mocked(app.db.transaction).mockRestore();
+    }
     expect(row?.status).toBe("cancelled");
     expect(row?.active).toBe(false);
     expect(row?.errorCode).toBeNull();
