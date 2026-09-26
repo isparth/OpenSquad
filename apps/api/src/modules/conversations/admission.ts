@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AgentRuntimeProvider } from "@opensquad/core";
+import { type AgentRuntimeProvider, sortToolGrants } from "@opensquad/core";
 import {
   agents,
   conversationMessages,
@@ -10,7 +10,6 @@ import {
   runtimeSessions,
 } from "@opensquad/db";
 import { and, count, eq, gte, sql } from "drizzle-orm";
-import { sortToolGrants } from "../agents/service.js";
 import { memorySnapshot } from "../memory/service.js";
 import { ConversationError, messageDto, runDto } from "./dto.js";
 import { appendEvent, lockConversation, nextMessageSequence } from "./persistence.js";

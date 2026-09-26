@@ -1,4 +1,4 @@
-import type { AgentToolGrant } from "@opensquad/core";
+import { sortToolGrants } from "@opensquad/core";
 import {
   type AgentRow,
   agents,
@@ -24,12 +24,6 @@ export type AgentUpdate = {
     | AgentRow[Field]
     | undefined;
 };
-
-/** Sorted by toolkit so equal grant sets store and compare byte-identically. */
-export const sortToolGrants = (grants: AgentToolGrant[]): AgentToolGrant[] =>
-  grants
-    .map(({ toolkit, access }) => ({ toolkit, access }))
-    .sort((a, b) => (a.toolkit < b.toolkit ? -1 : a.toolkit > b.toolkit ? 1 : 0));
 
 const nextUpdatedAt = sql`greatest(clock_timestamp(), ${agents.updatedAt} + interval '1 millisecond')`;
 

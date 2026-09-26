@@ -30,6 +30,12 @@ export interface AgentToolGrant {
   access: ToolAccess;
 }
 
+/** Sorted by toolkit so equal grant sets store and compare byte-identically. */
+export const sortToolGrants = (grants: AgentToolGrant[]): AgentToolGrant[] =>
+  grants
+    .map(({ toolkit, access }) => ({ toolkit, access }))
+    .sort((a, b) => (a.toolkit < b.toolkit ? -1 : a.toolkit > b.toolkit ? 1 : 0));
+
 export interface ToolGrant {
   toolkit: string;
   access: ToolAccess;
