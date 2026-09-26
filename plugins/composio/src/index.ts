@@ -387,11 +387,11 @@ export class ComposioProvider implements ToolsProvider {
     const sessionId = created.data.session_id;
     const echo = sessionEchoSchema.safeParse(raw);
     if (!echo.success || !this.matchesPolicy(echo.data, grants)) {
+      // Own timeout only: a caller disconnect must not leave an over-privileged session alive.
       await this.send(
         credentials,
         { method: "DELETE", path: `/tool_router/session/${sessionId}` },
         null,
-        request,
       ).catch(() => {});
       throw fail("policy_mismatch");
     }
@@ -455,8 +455,11 @@ export class ComposioProvider implements ToolsProvider {
       await response.body?.cancel().catch(() => {});
       throw fail(statusCode(response.status));
     }
+    if (schema === null) {
+      await response.body?.cancel().catch(() => {});
+      return undefined as T;
+    }
     const text = await readLimited(response);
-    if (schema === null) return undefined as T;
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);

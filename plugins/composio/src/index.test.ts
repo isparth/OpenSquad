@@ -400,6 +400,14 @@ describe("removeConnection", () => {
     expect(calls[1]?.init.headers).toEqual({ accept: "application/json", "x-api-key": KEY });
   });
 
+  it("cancels the unused delete response body", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream({ cancel });
+    const { provider } = stub(accounts([account()]), new Response(body, { status: 200 }));
+    await provider.removeConnection(credentials, "dev-user", "ca_github1");
+    expect(cancel).toHaveBeenCalled();
+  });
+
   it("refuses connections owned by someone else", async () => {
     const { provider, calls } = stub(accounts([account()]));
     expect(
@@ -545,6 +553,24 @@ describe("createSession", () => {
     expect(error.code).toBe("policy_mismatch");
     expect(calls[1]?.url.href).toBe(`${BASE}/tool_router/session/trs_abc123`);
     expect(calls[1]?.init.method).toBe("DELETE");
+  });
+
+  it("cleans up with its own signal after the caller aborts", async () => {
+    const controller = new AbortController();
+    const { provider, calls } = stub(
+      () => {
+        controller.abort();
+        return json(sessionEcho({}, { workbench: { enable: true } }), 201);
+      },
+      json({ success: true }),
+    );
+    const error = await rejection(
+      provider.createSession(credentials, "dev-user", grants, { signal: controller.signal }),
+    );
+    expect(error.code).toBe("policy_mismatch");
+    expect(calls[1]?.init.method).toBe("DELETE");
+    expect(calls[1]?.url.href).toBe(`${BASE}/tool_router/session/trs_abc123`);
+    expect(calls[1]?.init.signal?.aborted).toBe(false);
   });
 
   it("still fails closed when cleanup fails", async () => {
