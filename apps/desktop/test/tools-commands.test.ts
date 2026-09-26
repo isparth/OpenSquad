@@ -119,6 +119,7 @@ describe("Connect Link validation", () => {
     "https://connect.composio.dev.evil.example/link",
     "https://user:pass@connect.composio.dev/link",
     "https://connect.composio.dev:8443/link",
+    "https://connect.composio.dev/link/lk_abc#fragment",
     "javascript:alert(1)",
     "not a url",
   ])("never opens %s", async (redirectUrl) => {

@@ -68,7 +68,8 @@ export function isConnectLink(value: string): boolean {
     url.hostname === "connect.composio.dev" &&
     url.port === "" &&
     url.username === "" &&
-    url.password === ""
+    url.password === "" &&
+    url.hash === ""
   );
 }
 
