@@ -69,6 +69,7 @@ function sessionEcho(
       premium_usage: false,
       manage_connections: { enabled: false, enable_connection_removal: true },
       tools: { github: { tags: READ_TAGS }, gmail: { tags: WRITE_TAGS } },
+      connected_accounts: { github: ["ca_github1"], gmail: ["ca_gmail1"] },
       workbench: { enable: false, proxy_execution_enabled: true },
       search: { enable: true },
       execute: { enable_multi_execute: true },
@@ -456,6 +457,7 @@ describe("createSession", () => {
           {
             toolkits: { enabled: ["gmail"] },
             tools: { gmail: { tags: { enabled: [], disabled: ["destructiveHint"] } } },
+            connected_accounts: { gmail: ["ca_gmail1"] },
           },
         ),
         201,
@@ -516,6 +518,25 @@ describe("createSession", () => {
       {},
     ],
     ["missing config", { config: undefined }, {}],
+    ["missing connected accounts", {}, { connected_accounts: undefined }],
+    [
+      "wrong connected account",
+      {},
+      { connected_accounts: { github: ["ca_other"], gmail: ["ca_gmail1"] } },
+    ],
+    [
+      "extra connected account",
+      {},
+      { connected_accounts: { github: ["ca_github1", "ca_other"], gmail: ["ca_gmail1"] } },
+    ],
+    [
+      "extra connected account toolkit",
+      {},
+      {
+        connected_accounts: { github: ["ca_github1"], gmail: ["ca_gmail1"], slack: ["ca_slack1"] },
+      },
+    ],
+    ["missing connected account toolkit", {}, { connected_accounts: { github: ["ca_github1"] } }],
   ];
 
   it.each(mismatches)("fails closed and deletes the session: %s", async (_name, top, config) => {

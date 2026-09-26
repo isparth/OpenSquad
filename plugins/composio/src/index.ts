@@ -96,6 +96,7 @@ const sessionEchoSchema = z.object({
   config: z.object({
     toolkits: z.object({ enabled: z.array(z.string()) }),
     tools: z.record(z.string(), z.object({ tags: tagsSchema.optional() })),
+    connected_accounts: z.record(z.string(), z.array(z.string())),
     workbench: z.object({ enable: z.boolean() }),
     manage_connections: z.object({ enabled: z.boolean() }),
     premium_usage: z.boolean(),
@@ -407,9 +408,11 @@ export class ComposioProvider implements ToolsProvider {
     const { config } = echo;
     if (!sameSet(config.toolkits.enabled, toolkits)) return false;
     if (!sameSet(Object.keys(config.tools), toolkits)) return false;
+    if (!sameSet(Object.keys(config.connected_accounts), toolkits)) return false;
     for (const grant of grants) {
       const tags = config.tools[grant.toolkit]?.tags;
       if (!sameSet(tags?.disabled, ["destructiveHint"])) return false;
+      if (!sameSet(config.connected_accounts[grant.toolkit], [grant.connectionId])) return false;
       if (grant.access === "read" && !sameSet(tags?.enabled, ["readOnlyHint"])) return false;
       if (grant.access === "write" && (tags?.enabled?.length ?? 0) > 0) return false;
     }
