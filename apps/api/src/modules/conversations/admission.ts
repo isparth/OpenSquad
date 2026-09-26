@@ -126,10 +126,10 @@ export function runAdmission(
           409,
           "Bot or runtime settings changed; start a new conversation",
         );
+      // Temporary until S5b-2 wires grants into runtime sessions; refuse rather than ignore them.
+      if (agent.toolGrants.length > 0)
+        throw new ConversationError(409, "This bot's apps can't be used in chats yet");
       if (!session) {
-        // Temporary until S5b-2 wires grants into runtime sessions; refuse rather than ignore them.
-        if (agent.toolGrants.length > 0)
-          throw new ConversationError(409, "This bot's apps can't be used in chats yet");
         if (environment === "hosted" && !config.features.hostedEnvironment)
           throw new ConversationError(
             409,

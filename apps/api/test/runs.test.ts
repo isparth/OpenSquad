@@ -609,19 +609,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     ).toHaveLength(1);
   });
 
-  it("compares tool grants regardless of order", async () => {
-    const queues: RuntimeQueue[] = [];
-    runtime.events.mockImplementation(async () => {
-      const next = new RuntimeQueue();
-      queues.push(next);
-      return next;
-    });
-    runtime.sendInput.mockImplementation(async () => {
-      const activeQueue = queues[1];
-      if (!activeQueue) throw new Error("Second subscription is missing");
-      activeQueue.emit(turn("running", "followup-turn"));
-      activeQueue.emit(turn("succeeded", "followup-turn"));
-    });
+  it("refuses follow-up turns once snapshotted grants match, regardless of order", async () => {
     await completeFirstTurn();
     await app.db
       .update(runtimeSessions)
@@ -636,10 +624,28 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       { toolkit: "github", access: "read" },
       { toolkit: "gmail", access: "write" },
     ]);
+    const messagesBefore = await app.db
+      .select()
+      .from(conversationMessages)
+      .where(eq(conversationMessages.conversationId, conversationId));
 
     const followup = await send(randomUUID(), "Second message");
-    expect(followup.statusCode).toBe(202);
-    await waitStatus(followup.json().run.id, "succeeded");
+    expect(followup.statusCode).toBe(409);
+    expect(followup.json().message).toBe("This bot's apps can't be used in chats yet");
+    expect(runtime.createSession).toHaveBeenCalledOnce();
+    expect(runtime.sendInput).not.toHaveBeenCalled();
+    expect(
+      await app.db
+        .select()
+        .from(conversationRuns)
+        .where(eq(conversationRuns.conversationId, conversationId)),
+    ).toHaveLength(1);
+    expect(
+      await app.db
+        .select()
+        .from(conversationMessages)
+        .where(eq(conversationMessages.conversationId, conversationId)),
+    ).toHaveLength(messagesBefore.length);
   });
 
   it("refuses to start a conversation with a bot that has tool grants", async () => {
