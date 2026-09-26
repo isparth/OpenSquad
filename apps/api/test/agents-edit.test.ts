@@ -158,6 +158,20 @@ describe("agent editing", () => {
     expect(cleared.json().toolGrants).toEqual([]);
   });
 
+  it("keeps tool grants when a PATCH omits them", async () => {
+    const agent = await seed();
+    const toolGrants = [{ toolkit: "github", access: "read" }];
+    await app.inject({ method: "PATCH", url: `/agents/${agent.id}`, payload: { toolGrants } });
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/agents/${agent.id}`,
+      payload: { name: "Renamed" },
+    });
+    expect(response.statusCode).toBe(200);
+    const fetched = await app.inject({ method: "GET", url: `/agents/${agent.id}` });
+    expect(fetched.json()).toMatchObject({ name: "Renamed", toolGrants });
+  });
+
   it("returns 404 for missing and other-owner agents without modifying them", async () => {
     const other = await seed("other-user");
     for (const id of [randomUUID(), other.id]) {
