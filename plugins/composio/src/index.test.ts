@@ -356,6 +356,46 @@ describe("startConnection", () => {
     expect(JSON.parse(String(calls[2]?.init.body))).toEqual({ toolkit: "github" });
   });
 
+  it("deletes abandoned pending attempts for the same toolkit first", async () => {
+    const { provider, calls } = stub(
+      accounts([
+        account({ id: "ca_p1", status: "INITIATED" }),
+        account({ id: "ca_p2", status: "INITIALIZING" }),
+        account({ id: "ca_gmailp", toolkit: { slug: "gmail" }, status: "INITIATED" }),
+        account({ id: "ca_gmaila", toolkit: { slug: "gmail" } }),
+        account({ id: "ca_expired", status: "EXPIRED" }),
+      ]),
+      json({ error: {} }, 500),
+      json({ success: true }),
+      json({ session_id: "trs_link1" }, 201),
+      json(link, 201),
+    );
+    expect(await provider.startConnection(credentials, "dev-user", "github")).toEqual({
+      connectionId: "ca_new1",
+      redirectUrl: "https://connect.composio.dev/link/lk_abc",
+    });
+    const deletes = calls.filter((call) => call.init.method === "DELETE");
+    expect(deletes.map((call) => call.url.href)).toEqual([
+      `${BASE}/connected_accounts/ca_p1`,
+      `${BASE}/connected_accounts/ca_p2`,
+    ]);
+    expect(calls[3]?.url.href).toBe(`${BASE}/tool_router/session`);
+  });
+
+  it("bounds abandoned-attempt cleanup", async () => {
+    const pending = Array.from({ length: 12 }, (_, index) =>
+      account({ id: `ca_p${index}`, status: "INITIATED" }),
+    );
+    const { provider, calls } = stub(
+      accounts(pending),
+      ...Array.from({ length: 10 }, () => json({ success: true })),
+      json({ session_id: "trs_link1" }, 201),
+      json(link, 201),
+    );
+    await provider.startConnection(credentials, "dev-user", "github");
+    expect(calls.filter((call) => call.init.method === "DELETE")).toHaveLength(10);
+  });
+
   it("refuses when an active connection exists", async () => {
     const { provider, calls } = stub(accounts([account()]));
     expect(

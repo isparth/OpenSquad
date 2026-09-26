@@ -18,6 +18,7 @@ const CONNECT_HOST = "connect.composio.dev";
 const TIMEOUT_MS = 30_000;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_CONNECTION_PAGES = 5;
+const MAX_ABANDONED_DELETES = 10;
 const META_TOOLS = [
   "COMPOSIO_SEARCH_TOOLS",
   "COMPOSIO_GET_TOOL_SCHEMAS",
@@ -283,6 +284,18 @@ export class ComposioProvider implements ToolsProvider {
     const existing = await this.listConnections(credentials, userId, request);
     if (existing.some((item) => item.toolkit === toolkit && item.status === "active")) {
       throw fail("conflict");
+    }
+    // Abandoned Connect Links leave INITIATED accounts behind; drop them before a new attempt.
+    const abandoned = existing
+      .filter((item) => item.toolkit === toolkit && item.status === "pending")
+      .slice(0, MAX_ABANDONED_DELETES);
+    for (const item of abandoned) {
+      await this.send(
+        credentials,
+        { method: "DELETE", path: `/connected_accounts/${item.id}` },
+        null,
+        request,
+      ).catch(() => {});
     }
     const session = await this.send(
       credentials,
