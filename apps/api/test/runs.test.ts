@@ -1053,6 +1053,18 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     expect(runtime.createSession).not.toHaveBeenCalled();
   });
 
+  it("keeps a tools failure when shutdown aborts the worker at the same time", async () => {
+    await enableApps();
+    const controller = new AbortController();
+    controller.abort();
+
+    const row = await runWorker(controller.signal);
+    expect(row?.status).toBe("failed");
+    expect(row?.errorCode).toBe("tools_key_required");
+    expect(row?.active).toBe(false);
+    expect(runtime.createSession).not.toHaveBeenCalled();
+  });
+
   it("treats an abort during tool setup as a lost worker, not a tools failure", async () => {
     await enableApps();
     const controller = new AbortController();

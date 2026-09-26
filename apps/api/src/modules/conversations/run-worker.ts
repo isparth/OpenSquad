@@ -347,11 +347,12 @@ export async function executeRun(work: RunWork) {
         }
       }
     }
-    if (signal.aborted) errorCode = "worker_lost";
+    // A tools failure is deterministic, so it stays a failure even if shutdown raced it.
+    if (signal.aborted && !failureCode) errorCode = "worker_lost";
     const state = await store.get(ownerId, runId);
     if (
       errorCode !== "output_limit" &&
-      !signal.aborted &&
+      (!signal.aborted || failureCode) &&
       state.run.leaseToken === token &&
       mode === "execute" &&
       !state.run.mutationInFlight &&
