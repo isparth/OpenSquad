@@ -29,7 +29,7 @@ export function buildCapabilities(env: Env): Capabilities {
     runtime: new OpenAIAgentsProvider({ defaultModel: env.RUNTIME_MODEL }),
     email: new AgentMailProvider({ apiKey: env.AGENTMAIL_API_KEY ?? "" }),
     phone: new VapiProvider({ apiKey: env.VAPI_API_KEY ?? "" }),
-    tools: new ComposioProvider({ apiKey: env.COMPOSIO_API_KEY ?? "" }),
+    tools: new ComposioProvider(),
     scheduler: new TriggerProvider({ secretKey: env.TRIGGER_SECRET_KEY ?? "" }),
     storage,
   };

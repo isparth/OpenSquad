@@ -8,10 +8,11 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@opensquad/core": "workspace:*"
+    "@opensquad/core": "workspace:*",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

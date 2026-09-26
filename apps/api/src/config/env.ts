@@ -22,7 +22,6 @@ const schema = z.object({
   RUNTIME_MODEL: z.string().trim().min(1).default("gpt-6-luna"),
   AGENTMAIL_API_KEY: optionalString,
   VAPI_API_KEY: optionalString,
-  COMPOSIO_API_KEY: optionalString,
   TRIGGER_SECRET_KEY: optionalString,
 });
 
