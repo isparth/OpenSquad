@@ -324,8 +324,21 @@ export class ComposioProvider implements ToolsProvider {
     assertKey(credentials);
     assertUser(userId);
     assertConnection(connectionId);
-    const owned = await this.listConnections(credentials, userId, request);
-    if (!owned.some((item) => item.id === connectionId)) throw fail("not_found");
+    const owned = await this.send(
+      credentials,
+      {
+        method: "GET",
+        path: "/connected_accounts",
+        query: [
+          ["user_ids", userId],
+          ["connected_account_ids", connectionId],
+          ["limit", "1"],
+        ],
+      },
+      connectionsSchema,
+      request,
+    );
+    if (!owned.items.some((item) => item.id === connectionId)) throw fail("not_found");
     await this.send(
       credentials,
       { method: "DELETE", path: `/connected_accounts/${connectionId}` },

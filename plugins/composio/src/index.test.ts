@@ -395,6 +395,12 @@ describe("removeConnection", () => {
   it("deletes an owned connection", async () => {
     const { provider, calls } = stub(accounts([account()]), json({ success: true }));
     await provider.removeConnection(credentials, "dev-user", "ca_github1");
+    expect(calls[0]?.url.pathname).toBe("/api/v3.1/connected_accounts");
+    expect([...(calls[0]?.url.searchParams ?? [])]).toEqual([
+      ["user_ids", "dev-user"],
+      ["connected_account_ids", "ca_github1"],
+      ["limit", "1"],
+    ]);
     expect(calls[1]?.url.href).toBe(`${BASE}/connected_accounts/ca_github1`);
     expect(calls[1]?.init.method).toBe("DELETE");
     expect(calls[1]?.init.headers).toEqual({ accept: "application/json", "x-api-key": KEY });
@@ -409,11 +415,12 @@ describe("removeConnection", () => {
   });
 
   it("refuses connections owned by someone else", async () => {
-    const { provider, calls } = stub(accounts([account()]));
-    expect(
-      (await rejection(provider.removeConnection(credentials, "dev-user", "ca_other"))).code,
-    ).toBe("not_found");
-    expect(calls).toHaveLength(1);
+    for (const items of [[], [account()], [account({ id: "ca_other", data: { token: "x" } })]]) {
+      const { provider, calls } = stub(accounts(items));
+      const removal = provider.removeConnection(credentials, "dev-user", "ca_missing");
+      expect((await rejection(removal)).code).toBe("not_found");
+      expect(calls).toHaveLength(1);
+    }
   });
 
   it("validates connection ids", async () => {
