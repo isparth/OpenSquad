@@ -217,6 +217,9 @@ export function ToolsDialog({
     });
 
   const nameFor = (slug: string) => names.current.get(slug) ?? slug;
+  const visible = connections?.filter(
+    (item) => item.status !== "pending" || item.id === pending?.connectionId,
+  );
   const activeToolkits = new Set(
     (connections ?? []).filter((item) => item.status === "active").map((item) => item.toolkit),
   );
@@ -282,10 +285,10 @@ export function ToolsDialog({
         <>
           <section className="tools-section" aria-labelledby={`${id}-connected`}>
             <h3 id={`${id}-connected`}>Connected apps</h3>
-            {connections?.length === 0 && <p className="muted">No apps connected yet.</p>}
-            {connections && connections.length > 0 && (
+            {visible?.length === 0 && <p className="muted">No apps connected yet.</p>}
+            {visible && visible.length > 0 && (
               <ul className="tools-list" aria-label="Connected apps">
-                {connections.map((item) => (
+                {visible.map((item) => (
                   <li key={item.id} className="tools-row">
                     <div className="tools-row-copy">
                       <strong>{nameFor(item.toolkit)}</strong>

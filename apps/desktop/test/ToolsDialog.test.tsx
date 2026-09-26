@@ -82,14 +82,30 @@ describe("tools dialog", () => {
     const list = await screen.findByRole("list", { name: "Connected apps" });
     await waitFor(() => expect(within(list).getByText("GitHub")).toBeInTheDocument());
     expect(within(list).getByText("Connected")).toBeInTheDocument();
-    expect(within(list).getByText("Waiting for approval")).toBeInTheDocument();
+    expect(within(list).queryByText("Waiting for approval")).toBeNull();
+    expect(within(list).queryByText("Gmail")).toBeNull();
     expect(within(list).getByText("Needs reconnecting")).toBeInTheDocument();
     expect(within(list).getByText("slack")).toBeInTheDocument();
     expect(
       within(list).getAllByText(new Date("2026-09-26T10:20:06.154Z").toLocaleDateString(), {
         exact: false,
       }),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
+  });
+
+  it("shows a pending connection only while it is being connected", async () => {
+    bridge.startToolConnection.mockResolvedValue({ connectionId: "ca_new1" });
+    bridge.listToolConnections.mockResolvedValue({
+      items: [connected("pending", "ca_old1"), connected("pending", "ca_new1")],
+    });
+    renderDialog();
+    const results = await screen.findByRole("list", { name: "Available apps" });
+    expect(screen.queryByText("Waiting for approval")).toBeNull();
+    fireEvent.click(within(results).getByRole("button", { name: "Connect GitHub" }));
+    const list = await screen.findByRole("list", { name: "Connected apps" });
+    await waitFor(() => expect(within(list).getAllByText("Waiting for approval")).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByText("Waiting for approval")).toBeNull());
   });
 
   it("shows the empty state", async () => {
