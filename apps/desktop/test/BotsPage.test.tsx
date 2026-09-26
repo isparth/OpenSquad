@@ -282,7 +282,8 @@ describe("bot management", () => {
     expect(screen.getByText(warning)).toBeInTheDocument();
     fireEvent.change(linear, { target: { value: "off" } });
     expect(screen.queryByText(warning)).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Access for linear" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Access for linear" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
     fireEvent.change(slack, { target: { value: "write" } });
     expect(screen.getByText(warning)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));

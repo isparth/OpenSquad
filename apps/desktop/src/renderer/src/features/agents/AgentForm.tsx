@@ -51,9 +51,7 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
     };
   }, []);
   const connected = apps.state === "loaded" ? apps.active : [];
-  const appRows = [
-    ...new Set([...connected, ...(agent?.toolGrants ?? []).map((grant) => grant.toolkit)]),
-  ].sort();
+  const appRows = [...new Set([...connected, ...Object.keys(grants)])].sort();
   const setAccess = (toolkit: string, access: ToolAccess | "off") =>
     setGrants(({ [toolkit]: _previous, ...rest }) =>
       access === "off" ? rest : { ...rest, [toolkit]: access },
