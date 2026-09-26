@@ -1,5 +1,9 @@
+import type { ToolAccess } from "@opensquad/core";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { type AgentInput, type AgentRecord, getApiClient } from "@/lib/api/client.js";
+
+type AppsState = { state: "loading" | "no-key" | "failed" } | { state: "loaded"; active: string[] };
+const accessLabels = { read: "Read", write: "Read and write" } satisfies Record<ToolAccess, string>;
 
 interface Props {
   agent?: AgentRecord;
@@ -18,13 +22,46 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
     instructions: agent?.instructions ?? "",
     sandboxEnabled: agent?.sandboxEnabled ?? false,
   });
+  const [grants, setGrants] = useState<Record<string, ToolAccess>>(() =>
+    Object.fromEntries((agent?.toolGrants ?? []).map((grant) => [grant.toolkit, grant.access])),
+  );
+  const [apps, setApps] = useState<AppsState>({ state: "loading" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
-  const change = (field: Exclude<keyof AgentInput, "sandboxEnabled">, value: string) =>
-    setDraft((previous) => ({ ...previous, [field]: value }));
+  useEffect(() => {
+    let active = true;
+    window.opensquad
+      .listToolConnections()
+      .then(({ items }) => {
+        const toolkits = items
+          .filter((item) => item.status === "active")
+          .map((item) => item.toolkit);
+        if (active) setApps({ state: "loaded", active: [...new Set(toolkits)] });
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        const noKey = err instanceof Error && err.message === "tools credential unavailable";
+        setApps({ state: noKey ? "no-key" : "failed" });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const connected = apps.state === "loaded" ? apps.active : [];
+  const appRows = [
+    ...new Set([...connected, ...(agent?.toolGrants ?? []).map((grant) => grant.toolkit)]),
+  ].sort();
+  const setAccess = (toolkit: string, access: ToolAccess | "off") =>
+    setGrants(({ [toolkit]: _previous, ...rest }) =>
+      access === "off" ? rest : { ...rest, [toolkit]: access },
+    );
+  const change = (
+    field: Exclude<keyof AgentInput, "sandboxEnabled" | "toolGrants">,
+    value: string,
+  ) => setDraft((previous) => ({ ...previous, [field]: value }));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -38,7 +75,15 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
     onBusyChange(true);
     setError(null);
     try {
-      const input = { ...draft, name: draft.name.trim(), label: draft.label.trim() || null };
+      const toolGrants = Object.entries(grants)
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([toolkit, access]) => ({ toolkit, access }));
+      const input = {
+        ...draft,
+        name: draft.name.trim(),
+        label: draft.label.trim() || null,
+        toolGrants,
+      };
       const api = await getApiClient();
       onSaved(await (agent ? api.updateAgent(agent.id, input) : api.createAgent(input)));
     } catch (error) {
@@ -134,6 +179,42 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
             and it may add cost on your OpenAI account. Changes apply to new conversations.
           </p>
         </div>
+        <fieldset className="field apps-field">
+          <legend className="field-label">Apps</legend>
+          {appRows.map((toolkit) => (
+            <div className="app-grant-row" key={toolkit}>
+              <span>
+                {toolkit}
+                {apps.state !== "loading" &&
+                  apps.state !== "failed" &&
+                  !connected.includes(toolkit) && <span className="muted"> Not connected</span>}
+              </span>
+              <select
+                aria-label={`Access for ${toolkit}`}
+                value={grants[toolkit] ?? "off"}
+                onChange={(event) => setAccess(toolkit, event.target.value as ToolAccess | "off")}
+              >
+                <option value="off">Off</option>
+                <option value="read">{accessLabels.read}</option>
+                <option value="write">{accessLabels.write}</option>
+              </select>
+            </div>
+          ))}
+          {apps.state === "failed" ? (
+            <p className="field-hint muted">Couldn't load connected apps.</p>
+          ) : (
+            appRows.length === 0 &&
+            apps.state !== "loading" && (
+              <p className="field-hint muted">Connect apps in Tools first.</p>
+            )
+          )}
+          {Object.values(grants).includes("write") && (
+            <p className="field-hint">
+              This bot can create and change things in these apps without asking you first. Actions
+              Composio marks as destructive, like deleting, are always blocked.
+            </p>
+          )}
+        </fieldset>
       </fieldset>
       {error && (
         <p role="alert" className="error-message">

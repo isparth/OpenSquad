@@ -13,6 +13,7 @@ const agent: AgentRecord = {
   description: "",
   instructions: "",
   sandboxEnabled: false,
+  toolGrants: [],
   avatarUrl: null,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",

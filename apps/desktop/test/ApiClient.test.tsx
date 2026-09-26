@@ -9,6 +9,7 @@ const agent: AgentRecord = {
   description: "",
   instructions: "",
   sandboxEnabled: false,
+  toolGrants: [],
   avatarUrl: null,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",
@@ -30,6 +31,7 @@ describe("bot HTTP client", () => {
       description: "",
       instructions: "",
       sandboxEnabled: false,
+      toolGrants: [{ toolkit: "github", access: "read" as const }],
     };
     fetch.mockResolvedValueOnce(new Response(JSON.stringify(agent)));
     await api.createAgent(input);
@@ -50,6 +52,27 @@ describe("bot HTTP client", () => {
     delete missing.sandboxEnabled;
     for (const value of [missing, { ...agent, sandboxEnabled: "true" }]) {
       vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify(value)));
+      await expect(api.getAgent(agent.id)).rejects.toThrow("Invalid bot response");
+    }
+  });
+
+  it("reads tool grants, treating a missing field as none and rejecting bad shapes", async () => {
+    const granted = { ...agent, toolGrants: [{ toolkit: "github", access: "write" }] };
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify(granted)));
+    expect((await api.getAgent(agent.id)).toolGrants).toEqual(granted.toolGrants);
+    const missing: Record<string, unknown> = { ...agent };
+    delete missing.toolGrants;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify(missing)));
+    expect((await api.getAgent(agent.id)).toolGrants).toEqual([]);
+    for (const toolGrants of [
+      null,
+      {},
+      [{ toolkit: "github" }],
+      [{ toolkit: 1, access: "read" }],
+    ]) {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...agent, toolGrants })),
+      );
       await expect(api.getAgent(agent.id)).rejects.toThrow("Invalid bot response");
     }
   });

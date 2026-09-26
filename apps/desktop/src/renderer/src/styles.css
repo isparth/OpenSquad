@@ -749,6 +749,27 @@ textarea {
   font-size: 12px;
   line-height: 1.6;
 }
+.apps-field legend {
+  margin-bottom: 8px;
+}
+.app-grant-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.app-grant-row select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.app-grant-list {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.75;
+}
 .switch-option {
   display: flex;
   align-items: center;
