@@ -26,7 +26,7 @@ export function runAdmission(
     ownerId: string,
     conversationId: string,
     input: { text: string; clientRequestId: string },
-    toolsKey = false,
+    hasToolsKey = false,
   ) =>
     db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 0))`);
@@ -127,10 +127,11 @@ export function runAdmission(
           409,
           "Bot or runtime settings changed; start a new conversation",
         );
+      // A session's frozen grants win over the agent's current ones (drift was checked above).
       if ((session?.toolGrants ?? agent.toolGrants).length > 0 && !session?.externalId) {
         if (!config.features.mcp)
           throw new ConversationError(409, "This runtime does not support apps");
-        if (!toolsKey)
+        if (!hasToolsKey)
           throw new ConversationError(428, "Add your Composio key in Tools to use this bot's apps");
       }
       if (!session) {
