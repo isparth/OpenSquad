@@ -124,6 +124,7 @@ export async function executeRun(work: RunWork) {
       });
       return result;
     } catch (error) {
+      if (signal.aborted) throw error;
       failureCode ??=
         (error instanceof ToolsError && toolsErrorCodes[error.code]) || "tools_unavailable";
       throw new Error("Tool session setup failed");
@@ -340,6 +341,7 @@ export async function executeRun(work: RunWork) {
     const state = await store.get(ownerId, runId);
     if (
       errorCode !== "output_limit" &&
+      !signal.aborted &&
       state.run.leaseToken === token &&
       mode === "execute" &&
       !state.run.mutationInFlight &&
