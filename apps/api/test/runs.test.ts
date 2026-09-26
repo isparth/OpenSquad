@@ -1096,14 +1096,36 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
 
   it("keeps a tools failure when shutdown aborts the worker at the same time", async () => {
     await enableApps();
+    tools.listConnections.mockResolvedValue([]);
+    const controller = new AbortController();
+    const transaction = app.db.transaction.bind(app.db);
+    let row: Awaited<ReturnType<typeof runWorker>>;
+    try {
+      row = await runWorker(controller.signal, { apiKey: "dummy-tools-key" }, () => {
+        vi.spyOn(app.db, "transaction").mockImplementation(async (...args) => {
+          // Abort once the failure is known, just before the worker records it.
+          if (tools.listConnections.mock.calls.length) controller.abort();
+          return transaction(...args);
+        });
+      });
+    } finally {
+      vi.mocked(app.db.transaction).mockRestore();
+    }
+    expect(controller.signal.aborted).toBe(true);
+    expect(row?.status).toBe("failed");
+    expect(row?.errorCode).toBe("tools_not_connected");
+    expect(row?.active).toBe(false);
+    expect(runtime.createSession).not.toHaveBeenCalled();
+  });
+
+  it("reports an abort before a missing tools key", async () => {
+    await enableApps();
     const controller = new AbortController();
     controller.abort();
 
     const row = await runWorker(controller.signal);
-    expect(row?.status).toBe("failed");
-    expect(row?.errorCode).toBe("tools_key_required");
-    expect(row?.active).toBe(false);
-    expect(runtime.createSession).not.toHaveBeenCalled();
+    expect(row?.status).not.toBe("failed");
+    expect(row?.errorCode).toBe("worker_lost");
   });
 
   it("treats an abort during tool setup as a lost worker, not a tools failure", async () => {

@@ -106,6 +106,7 @@ export async function executeRun(work: RunWork) {
   }
 
   async function openToolSession(sessionId: string, grants: AgentToolGrant[]) {
+    signal.throwIfAborted();
     if (!toolsCredentials) {
       failureCode = "tools_key_required";
       throw new Error("Tools key unavailable");
@@ -119,7 +120,6 @@ export async function executeRun(work: RunWork) {
         throw error;
       }
     };
-    signal.throwIfAborted();
     const active = (
       await provider(() => tools.listConnections(toolsCredentials, ownerId, { signal }))
     ).filter((connection) => connection.status === "active");
