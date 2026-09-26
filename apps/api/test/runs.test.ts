@@ -19,6 +19,28 @@ import { FakeRuntimeProvider } from "./fakes.js";
 import { createTestApp } from "./helpers.js";
 import { RuntimeQueue } from "./runtime-queue.js";
 
+const hooks = vi.hoisted(() => ({
+  beforeApply: undefined as ((event: RuntimeEvent) => Promise<void>) | undefined,
+}));
+
+vi.mock("../src/modules/conversations/runtime-events.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("../src/modules/conversations/runtime-events.js")>();
+  return {
+    ...original,
+    runtimeEvents: (...args: Parameters<typeof original.runtimeEvents>) => {
+      const processor = original.runtimeEvents(...args);
+      return {
+        ...processor,
+        apply: async (...applyArgs: Parameters<typeof processor.apply>) => {
+          await hooks.beforeApply?.(applyArgs[3]);
+          return processor.apply(...applyArgs);
+        },
+      };
+    },
+  };
+});
+
 describe("runtime HTTP execution", () => {
   let app: App;
   let runtime: FakeRuntimeProvider;
@@ -81,6 +103,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       .conversation.id;
   });
   afterEach(async () => {
+    hooks.beforeApply = undefined;
     await app.close();
     const { createDatabase } = await import("@opensquad/db");
     const database = createDatabase(testDatabaseUrl);
@@ -798,6 +821,84 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     const runResponse = await app.inject({ method: "GET", url: `/runs/${id}` });
     expect(runResponse.body).not.toContain("dummy-user-key");
     expect(runResponse.body).not.toContain("session-test");
+  });
+
+  it("applies a terminal event that arrives as the stream ends during an earlier apply", async () => {
+    await setSandboxEnabled(true);
+    let sent!: () => void;
+    const sending = new Promise<void>((resolve) => {
+      sent = resolve;
+    });
+    let releaseTerminal!: () => void;
+    const terminalReleased = new Promise<void>((resolve) => {
+      releaseTerminal = resolve;
+    });
+    let ended!: () => void;
+    const streamEnded = new Promise<void>((resolve) => {
+      ended = resolve;
+    });
+    const running = turn("running");
+    const stream = {
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        await sending;
+        yield running;
+        await terminalReleased;
+        yield turn("succeeded");
+        ended();
+      },
+    };
+    runtime.events.mockResolvedValue(stream);
+    runtime.sendInput.mockImplementation(async () => sent());
+    hooks.beforeApply = async (event) => {
+      if (event.externalId !== running.externalId) return;
+      // While the worker is still applying "running", the provider delivers the
+      // terminal event and ends the stream, like the OpenAI plugin does.
+      releaseTerminal();
+      await streamEnded;
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+    const response = await send();
+    expect(response.statusCode).toBe(202);
+    const id = response.json().run.id;
+    await waitStatus(id, "succeeded");
+    const [row] = await app.db.select().from(conversationRuns).where(eq(conversationRuns.id, id));
+    expect(row?.errorCode).toBeNull();
+    expect(row?.observation).not.toBe("reconciliation_required");
+    expect(runtime.cancel).not.toHaveBeenCalled();
+  });
+
+  it("records a disconnect when the stream ends without a root outcome", async () => {
+    await setSandboxEnabled(true);
+    let sent!: () => void;
+    const sending = new Promise<void>((resolve) => {
+      sent = resolve;
+    });
+    const stream = {
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        await sending;
+        yield turn("running");
+      },
+    };
+    runtime.events.mockResolvedValue(stream);
+    runtime.sendInput.mockImplementation(async () => sent());
+    const response = await send();
+    expect(response.statusCode).toBe(202);
+    const id = response.json().run.id;
+    await vi.waitFor(
+      async () => {
+        const [row] = await app.db
+          .select()
+          .from(conversationRuns)
+          .where(eq(conversationRuns.id, id));
+        expect(row?.errorCode).toBe("stream_disconnected");
+        expect(row?.observation).toBe("reconciliation_required");
+        expect(row?.status).toBe("running");
+      },
+      { timeout: 3000, interval: 20 },
+    );
+    expect(stream.close).toHaveBeenCalled();
   });
 
   it("does not send again after an ambiguous submission failure and closes the subscription", async () => {
