@@ -119,12 +119,14 @@ export async function executeRun(work: RunWork) {
         throw error;
       }
     };
+    signal.throwIfAborted();
     const active = (
       await provider(() => tools.listConnections(toolsCredentials, ownerId, { signal }))
     ).filter((connection) => connection.status === "active");
     const resolved = grants.map((grant) => {
       const matches = active.filter((connection) => connection.toolkit === grant.toolkit);
       if (matches.length !== 1 || !matches[0]) {
+        signal.throwIfAborted();
         failureCode = matches.length ? "tools_multiple_accounts" : "tools_not_connected";
         throw new Error("Tool connection unavailable");
       }

@@ -1082,6 +1082,29 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     expect(runtime.createSession).not.toHaveBeenCalled();
   });
 
+  it("checks the abort signal before listing connections", async () => {
+    await enableApps();
+    const controller = new AbortController();
+    controller.abort();
+
+    const row = await runWorker(controller.signal, { apiKey: "dummy-tools-key" });
+    expect(row?.errorCode).toBe("worker_lost");
+    expect(tools.listConnections).not.toHaveBeenCalled();
+  });
+
+  it("does not report missing connections found after an abort as a tools failure", async () => {
+    await enableApps();
+    const controller = new AbortController();
+    tools.listConnections.mockImplementation(async () => {
+      controller.abort();
+      return [];
+    });
+
+    const row = await runWorker(controller.signal, { apiKey: "dummy-tools-key" });
+    expect(row?.status).not.toBe("failed");
+    expect(row?.errorCode).toBe("worker_lost");
+  });
+
   it("checks the abort signal between listing connections and creating the tool session", async () => {
     await enableApps();
     const controller = new AbortController();
