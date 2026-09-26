@@ -20,6 +20,9 @@ const STATUS_COPY: Record<ToolConnectionStatus, string> = {
   attention: "Needs reconnecting",
 };
 
+// Polling can't recover from these without the user fixing the key; other errors are retried.
+const FATAL_POLL_ERRORS = new Set(["tools credential unavailable", "tools key rejected"]);
+
 const KEY_REJECTED = "Composio rejected this key. Check it's a project key (starts with ak_).";
 
 function statusCopy(status: ToolsKeyStatus | null): string {
@@ -161,7 +164,11 @@ export function ToolsDialog({
           );
           if (done) setPending(null);
         })
-        .catch(() => {})
+        .catch((err: unknown) => {
+          if (!active || !(err instanceof Error) || !FATAL_POLL_ERRORS.has(err.message)) return;
+          setPending(null);
+          setError(errorCopy(err));
+        })
         .finally(() => {
           polling = false;
         });

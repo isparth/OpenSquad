@@ -188,6 +188,44 @@ describe("tools dialog", () => {
     expect(bridge.listToolConnections.mock.calls.length).toBe(calls);
   });
 
+  it.each([
+    ["tools credential unavailable", "tools credential unavailable"],
+    [
+      "tools key rejected",
+      "Composio rejected this key. Check it's a project key (starts with ak_).",
+    ],
+  ])("stops polling when a poll fails with %s", async (message, copy) => {
+    bridge.startToolConnection.mockResolvedValue({ connectionId: "ca_new1" });
+    bridge.listToolConnections
+      .mockResolvedValueOnce({ items: [] })
+      .mockRejectedValue(new Error(message));
+    renderDialog();
+    const results = await screen.findByRole("list", { name: "Available apps" });
+    fireEvent.click(within(results).getByRole("button", { name: "Connect GitHub" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(copy);
+    expect(screen.queryByText("Finish connecting in your browser…")).toBeNull();
+    const calls = bridge.listToolConnections.mock.calls.length;
+    await sleep(50);
+    expect(bridge.listToolConnections.mock.calls.length).toBe(calls);
+  });
+
+  it("keeps polling silently through other poll errors", async () => {
+    bridge.startToolConnection.mockResolvedValue({ connectionId: "ca_new1" });
+    bridge.listToolConnections
+      .mockResolvedValueOnce({ items: [] })
+      .mockRejectedValueOnce(new Error("service unavailable"))
+      .mockResolvedValue({ items: [connected("active", "ca_new1")] });
+    renderDialog();
+    const results = await screen.findByRole("list", { name: "Available apps" });
+    fireEvent.click(within(results).getByRole("button", { name: "Connect GitHub" }));
+    await screen.findByText("Finish connecting in your browser…");
+    await waitFor(() =>
+      expect(screen.queryByText("Finish connecting in your browser…")).toBeNull(),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(bridge.listToolConnections.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
   it("gives up polling after the timeout", async () => {
     bridge.startToolConnection.mockResolvedValue({ connectionId: "ca_new1" });
     renderDialog({ pollTimeoutMs: 40 });
