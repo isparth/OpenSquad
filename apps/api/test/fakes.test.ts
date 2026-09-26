@@ -1,6 +1,6 @@
 import type { RuntimeEvent, RuntimeEventStream, RuntimeSession } from "@opensquad/core";
 import { describe, expect, it, vi } from "vitest";
-import { FakeRuntimeProvider } from "./fakes.js";
+import { FakeRuntimeProvider, FakeToolsProvider } from "./fakes.js";
 
 const credentials = { apiKey: "dummy-test-key" };
 const session: RuntimeSession = {
@@ -125,5 +125,21 @@ describe("FakeRuntimeProvider", () => {
       { status: "succeeded", subagentExternalId: null },
     ]);
     expect(runtime.events).not.toHaveBeenCalled();
+  });
+});
+
+describe("FakeToolsProvider", () => {
+  it("fails closed for every unconfigured operation", async () => {
+    const tools = new FakeToolsProvider();
+    const calls = {
+      listToolkits: () => tools.listToolkits(credentials, {}),
+      listConnections: () => tools.listConnections(credentials, "dev-user"),
+      startConnection: () => tools.startConnection(credentials, "dev-user", "github"),
+      removeConnection: () => tools.removeConnection(credentials, "dev-user", "ca_x"),
+      createSession: () => tools.createSession(credentials, "dev-user", []),
+    };
+    for (const [method, call] of Object.entries(calls)) {
+      await expect(call()).rejects.toThrow(`Configure FakeToolsProvider.${method}`);
+    }
   });
 });

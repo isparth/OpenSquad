@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { RuntimeKeyStatus, RuntimeKeyUnavailableReason } from "../shared/ipc.js";
 
 const VAULT_FILE = "runtime-key.v1.bin";
+const TOOLS_VAULT_FILE = "tools-key.v1.bin";
 const SUBJECT = "dev-user";
 const MAX_CIPHERTEXT_BYTES = 16 * 1024;
 
@@ -36,6 +37,8 @@ export interface RuntimeCredentialVaultOptions {
   platform: NodeJS.Platform;
   userDataPath: string;
   safeStorage: SafeStorageLike;
+  /** Vault file inside userData. Defaults to the runtime key file. */
+  fileName?: string;
 }
 
 export type ReadKeyResult =
@@ -69,7 +72,9 @@ export function createRuntimeCredentialVault(
 ): RuntimeCredentialVault {
   const enabled = options.development && !options.packaged;
   const origin = enabled ? normalizeDevOrigin(options.apiBaseUrl) : null;
-  const file = join(options.userDataPath, VAULT_FILE);
+  const fileName = options.fileName ?? VAULT_FILE;
+  if (!/^[a-z][a-z0-9-]*\.v1\.bin$/.test(fileName)) throw new Error("invalid vault file name");
+  const file = join(options.userDataPath, fileName);
   const { safeStorage } = options;
 
   let queue: Promise<unknown> = Promise.resolve();
@@ -159,7 +164,7 @@ export function createRuntimeCredentialVault(
       throw new Error("ciphertext exceeds vault bound");
     }
     await mkdir(options.userDataPath, { recursive: true });
-    const temp = join(options.userDataPath, `${VAULT_FILE}.${randomBytes(8).toString("hex")}.tmp`);
+    const temp = join(options.userDataPath, `${fileName}.${randomBytes(8).toString("hex")}.tmp`);
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await open(temp, "wx", 0o600);
@@ -268,3 +273,4 @@ export function createRuntimeCredentialVault(
 }
 
 export const runtimeVaultFileName = VAULT_FILE;
+export const toolsVaultFileName = TOOLS_VAULT_FILE;

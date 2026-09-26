@@ -1166,3 +1166,53 @@ input[type="file"]::file-selector-button {
     padding-inline: 10px;
   }
 }
+.tools-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+}
+.tools-section {
+  margin-top: 20px;
+}
+.tools-section h3 {
+  margin-bottom: 8px;
+}
+.tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.tools-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.tools-row-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.tools-row-copy .muted {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tools-confirm,
+.tools-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.tools-pending {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}

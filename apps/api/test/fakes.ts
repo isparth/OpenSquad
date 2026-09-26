@@ -1,4 +1,4 @@
-import type { AgentRuntimeProvider } from "@opensquad/core";
+import type { AgentRuntimeProvider, ToolsProvider } from "@opensquad/core";
 import { vi } from "vitest";
 
 function unconfigured(method: keyof AgentRuntimeProvider): never {
@@ -42,5 +42,28 @@ export class FakeRuntimeProvider implements AgentRuntimeProvider {
   readonly cancel = vi.fn<AgentRuntimeProvider["cancel"]>(async () => unconfigured("cancel"));
   readonly destroySession = vi.fn<AgentRuntimeProvider["destroySession"]>(async () =>
     unconfigured("destroySession"),
+  );
+}
+
+function unconfiguredTools(method: keyof ToolsProvider): never {
+  throw new Error(`Configure FakeToolsProvider.${method} in this test`);
+}
+
+export class FakeToolsProvider implements ToolsProvider {
+  readonly name = "fake-tools";
+  readonly listToolkits = vi.fn<ToolsProvider["listToolkits"]>(async () =>
+    unconfiguredTools("listToolkits"),
+  );
+  readonly listConnections = vi.fn<ToolsProvider["listConnections"]>(async () =>
+    unconfiguredTools("listConnections"),
+  );
+  readonly startConnection = vi.fn<ToolsProvider["startConnection"]>(async () =>
+    unconfiguredTools("startConnection"),
+  );
+  readonly removeConnection = vi.fn<ToolsProvider["removeConnection"]>(async () =>
+    unconfiguredTools("removeConnection"),
+  );
+  readonly createSession = vi.fn<ToolsProvider["createSession"]>(async () =>
+    unconfiguredTools("createSession"),
   );
 }

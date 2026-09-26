@@ -1,9 +1,10 @@
 import { electronApp, is, optimizer } from "@electron-toolkit/utils";
-import { app, BrowserWindow, safeStorage } from "electron";
+import { app, BrowserWindow, safeStorage, shell } from "electron";
 import { config } from "./config.js";
 import { registerIpc } from "./ipc.js";
 import { createRuntimeCommands } from "./runtime-commands.js";
-import { createRuntimeCredentialVault } from "./runtime-credentials.js";
+import { createRuntimeCredentialVault, toolsVaultFileName } from "./runtime-credentials.js";
+import { createToolsCommands } from "./tools-commands.js";
 import { createMainWindow } from "./window.js";
 
 if (!app.requestSingleInstanceLock()) {
@@ -25,16 +26,26 @@ if (!app.requestSingleInstanceLock()) {
     // F12 toggles devtools in dev, and Cmd/Ctrl+R is ignored in production.
     app.on("browser-window-created", (_, window) => optimizer.watchWindowShortcuts(window));
 
-    const vault = createRuntimeCredentialVault({
+    const vaultOptions = {
       apiBaseUrl: config.apiBaseUrl,
       development: is.dev,
       packaged: app.isPackaged,
       platform: process.platform,
       userDataPath: app.getPath("userData"),
       safeStorage,
+    };
+    const vault = createRuntimeCredentialVault(vaultOptions);
+    const toolsVault = createRuntimeCredentialVault({
+      ...vaultOptions,
+      fileName: toolsVaultFileName,
     });
     const commands = createRuntimeCommands({ vault, fetch });
-    ipc = registerIpc({ vault, commands });
+    const toolsCommands = createToolsCommands({
+      vault: toolsVault,
+      fetch,
+      openExternal: (url) => shell.openExternal(url),
+    });
+    ipc = registerIpc({ vault, commands, toolsVault, toolsCommands });
 
     mainWindow = createMainWindow(ipc);
 

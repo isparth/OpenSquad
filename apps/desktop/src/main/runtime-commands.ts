@@ -126,9 +126,9 @@ const messageSchema = z.strictObject({
 const sendMessageResultSchema = z.strictObject({ message: messageSchema, run: runSchema });
 const runResultSchema = z.strictObject({ run: runSchema });
 
-class CommandError extends Error {}
+export class CommandError extends Error {}
 
-function statusError(status: number): string {
+export function statusError(status: number): string {
   switch (status) {
     case 400:
       return "request rejected";
@@ -143,6 +143,41 @@ function statusError(status: number): string {
       return "rate limited";
     default:
       return "service unavailable";
+  }
+}
+
+export async function readLimitedBody(
+  response: Response,
+  maxBytes = MAX_BODY_BYTES,
+): Promise<unknown> {
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (declared > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    throw new CommandError("response too large");
+  }
+  if (!response.body) throw new CommandError("request failed");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new CommandError("response too large");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const buffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+  try {
+    return JSON.parse(buffer.toString("utf8"));
+  } catch {
+    throw new CommandError("invalid response");
   }
 }
 
@@ -182,38 +217,6 @@ export function createRuntimeCommands(options: RuntimeCommandsOptions): RuntimeC
     }
     admittedAt.push(now());
     active += 1;
-  }
-
-  async function readLimitedBody(response: Response): Promise<unknown> {
-    const declared = Number(response.headers.get("content-length") ?? 0);
-    if (declared > MAX_BODY_BYTES) {
-      await response.body?.cancel().catch(() => {});
-      throw new CommandError("response too large");
-    }
-    if (!response.body) throw new CommandError("request failed");
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        if (total > MAX_BODY_BYTES) {
-          await reader.cancel().catch(() => {});
-          throw new CommandError("response too large");
-        }
-        chunks.push(value);
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    const buffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
-    try {
-      return JSON.parse(buffer.toString("utf8"));
-    } catch {
-      throw new CommandError("invalid response");
-    }
   }
 
   async function request<S>(

@@ -24,6 +24,7 @@ import { type IpcController, registerIpc } from "../src/main/ipc.js";
 import { expectedRendererUrl } from "../src/main/renderer-url.js";
 import type { RuntimeCommands } from "../src/main/runtime-commands.js";
 import type { RuntimeCredentialVault } from "../src/main/runtime-credentials.js";
+import type { ToolsCommands } from "../src/main/tools-commands.js";
 
 class FakeWebContents extends EventEmitter {
   destroyed = false;
@@ -48,6 +49,8 @@ function eventFor(wc: FakeWebContents, frame: { url: string } | null = wc.mainFr
 let controller: IpcController;
 let vault: RuntimeCredentialVault;
 let commands: RuntimeCommands;
+let toolsVault: RuntimeCredentialVault;
+let toolsCommands: ToolsCommands;
 
 beforeEach(() => {
   mocks.handlers.clear();
@@ -66,7 +69,21 @@ beforeEach(() => {
     refreshMemory: vi.fn(async (_c, signal: AbortSignal) => ({ update: null, signal })),
     abortAll: vi.fn(),
   } as unknown as RuntimeCommands;
-  controller = registerIpc({ vault, commands });
+  toolsVault = {
+    origin: "http://localhost:3000",
+    status: vi.fn(async () => ({ state: "unavailable", reason: "not-configured" })),
+    set: vi.fn(async () => ({ state: "configured" })),
+    delete: vi.fn(async () => ({ state: "unavailable", reason: "not-configured" })),
+    readKey: vi.fn(async () => ({ ok: true, key: "t" })),
+  } as unknown as RuntimeCredentialVault;
+  toolsCommands = {
+    listToolkits: vi.fn(async () => ({ items: [], nextCursor: null })),
+    listConnections: vi.fn(async () => ({ items: [] })),
+    startConnection: vi.fn(async () => ({ connectionId: "ca_new1" })),
+    removeConnection: vi.fn(async () => undefined),
+    abortAll: vi.fn(),
+  } as unknown as ToolsCommands;
+  controller = registerIpc({ vault, commands, toolsVault, toolsCommands });
 });
 
 afterEach(() => {
@@ -243,6 +260,7 @@ describe("revocation", () => {
     await Promise.resolve();
     controller.shutdown();
     expect(commands.abortAll).toHaveBeenCalled();
+    expect(toolsCommands.abortAll).toHaveBeenCalled();
   });
 });
 
@@ -294,9 +312,93 @@ describe("argument validation", () => {
       IPC.getApiBaseUrl,
       IPC.getRuntimeKeyStatus,
       IPC.deleteRuntimeKey,
+      IPC.getToolsKeyStatus,
+      IPC.deleteToolsKey,
+      IPC.listToolConnections,
     ]) {
       await expect(invoke(channel, eventFor(wc), { extra: 1 })).rejects.toThrow("invalid request");
     }
+  });
+});
+
+describe("tools channels", () => {
+  it("routes key operations to the tools vault only", async () => {
+    const wc = new FakeWebContents();
+    controller.trustWindow(fakeWindow(wc));
+    await expect(invoke(IPC.getToolsKeyStatus, eventFor(wc))).resolves.toEqual({
+      state: "unavailable",
+      reason: "not-configured",
+    });
+    await expect(invoke(IPC.setToolsKey, eventFor(wc), "ak_valid")).resolves.toEqual({
+      state: "configured",
+    });
+    await invoke(IPC.deleteToolsKey, eventFor(wc));
+    expect(toolsVault.set).toHaveBeenCalledWith("ak_valid");
+    expect(toolsVault.delete).toHaveBeenCalled();
+    expect(vault.set).not.toHaveBeenCalled();
+    expect(vault.delete).not.toHaveBeenCalled();
+    await expect(invoke(IPC.setToolsKey, eventFor(wc), "has space")).rejects.toThrow(
+      "invalid request",
+    );
+  });
+
+  it("validates and forwards tools commands with an abort signal", async () => {
+    const wc = new FakeWebContents();
+    controller.trustWindow(fakeWindow(wc));
+    await invoke(IPC.listToolkits, eventFor(wc), { search: "git" });
+    expect(toolsCommands.listToolkits).toHaveBeenCalledWith(
+      { search: "git" },
+      expect.any(AbortSignal),
+    );
+    await invoke(IPC.listToolConnections, eventFor(wc));
+    expect(toolsCommands.listConnections).toHaveBeenCalledWith(expect.any(AbortSignal));
+    await expect(
+      invoke(IPC.startToolConnection, eventFor(wc), { toolkit: "github" }),
+    ).resolves.toEqual({ connectionId: "ca_new1" });
+    await invoke(IPC.removeToolConnection, eventFor(wc), { connectionId: "ca_github1" });
+    expect(toolsCommands.removeConnection).toHaveBeenCalledWith(
+      { connectionId: "ca_github1" },
+      expect.any(AbortSignal),
+    );
+    for (const [channel, arg] of [
+      [IPC.listToolkits, { search: "x".repeat(101) }],
+      [IPC.listToolkits, { search: "git", extra: 1 }],
+      [IPC.listToolkits, undefined],
+      [IPC.startToolConnection, { toolkit: "GitHub" }],
+      [IPC.startToolConnection, { toolkit: "github", url: "https://evil.example" }],
+      [IPC.removeToolConnection, { connectionId: "../x" }],
+    ] as const) {
+      await expect(invoke(channel, eventFor(wc), arg)).rejects.toThrow("invalid request");
+    }
+    expect(toolsCommands.startConnection).toHaveBeenCalledOnce();
+  });
+
+  it("passes static tools errors through and hides others", async () => {
+    const wc = new FakeWebContents();
+    controller.trustWindow(fakeWindow(wc));
+    for (const message of [
+      "tools credential unavailable",
+      "tools key rejected",
+      "unable to open browser",
+      "too many active tools commands",
+      "tools command rate limit exceeded",
+    ]) {
+      (toolsCommands.listConnections as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error(message),
+      );
+      await expect(invoke(IPC.listToolConnections, eventFor(wc))).rejects.toThrow(message);
+    }
+    (toolsCommands.listConnections as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("https://connect.composio.dev/link/lk_secret"),
+    );
+    await expect(invoke(IPC.listToolConnections, eventFor(wc))).rejects.toThrow(/^request failed$/);
+  });
+
+  it("shares the vault mutation limit with the runtime key", async () => {
+    const wc = new FakeWebContents();
+    controller.trustWindow(fakeWindow(wc));
+    for (let i = 0; i < 10; i += 1) await invoke(IPC.deleteToolsKey, eventFor(wc));
+    await expect(invoke(IPC.deleteRuntimeKey, eventFor(wc))).rejects.toThrow("rate limited");
   });
 });
 
@@ -347,6 +449,13 @@ describe("bridge surface", () => {
       [
         "cancelRun",
         "deleteRuntimeKey",
+        "deleteToolsKey",
+        "getToolsKeyStatus",
+        "listToolConnections",
+        "listToolkits",
+        "removeToolConnection",
+        "setToolsKey",
+        "startToolConnection",
         "getApiBaseUrl",
         "getAppInfo",
         "getRuntimeKeyStatus",
@@ -357,6 +466,7 @@ describe("bridge surface", () => {
       ].sort(),
     );
     expect(bridge).not.toHaveProperty("getRuntimeKey");
+    expect(bridge).not.toHaveProperty("getToolsKey");
     expect(bridge).not.toHaveProperty("invoke");
   });
 });

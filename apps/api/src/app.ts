@@ -16,6 +16,7 @@ import type { UsageBackfillOptions } from "./modules/conversations/turn-usage.js
 import healthRoutes from "./modules/health/routes.js";
 import meRoutes from "./modules/me/routes.js";
 import memoryRoutes from "./modules/memory/routes.js";
+import toolsRoutes from "./modules/tools/routes.js";
 import capabilities from "./plugins/capabilities.js";
 import db from "./plugins/db.js";
 import envPlugin from "./plugins/env.js";
@@ -46,6 +47,7 @@ export async function buildApp(env: Env, options: BuildAppOptions = {}) {
               "req.headers.authorization",
               "req.headers.cookie",
               'req.headers["x-opensquad-runtime-key"]',
+              'req.headers["x-opensquad-tools-key"]',
             ],
           },
   }).withTypeProvider<ZodTypeProvider>();
@@ -69,6 +71,7 @@ export async function buildApp(env: Env, options: BuildAppOptions = {}) {
   });
   await app.register(memoryRoutes);
   await app.register(meRoutes);
+  await app.register(toolsRoutes);
 
   return app;
 }
