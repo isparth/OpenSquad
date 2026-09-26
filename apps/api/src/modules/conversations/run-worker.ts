@@ -34,6 +34,8 @@ export interface RunWork {
   mode: "execute" | "recover";
 }
 
+const cancelledBeforeCreate = Symbol("cancelledBeforeCreate");
+
 const toolsErrorCodes: Partial<Record<ToolsErrorCode, string>> = {
   unauthorized: "tools_key_rejected",
   policy_mismatch: "tools_policy_mismatch",
@@ -63,15 +65,21 @@ export async function executeRun(work: RunWork) {
     nextPhase: "subscribing" | "observing" = "observing",
   ) {
     signal.throwIfAborted();
-    await owned(async (tx, run) => {
+    const cancelled = await owned(async (tx, run) => {
       if (run.mutationInFlight || !run.active)
         throw new Error("Run cannot dispatch another mutation");
+      if (phase === "creating" && run.cancelRequested) {
+        await saveRun(tx, run, { status: "cancelled" });
+        return true;
+      }
       await saveRun(tx, run, {
         phase,
         mutationInFlight: true,
         ...(phase === "cancelling" ? { cancelDispatched: true } : {}),
       });
+      return false;
     });
+    if (cancelled) return cancelledBeforeCreate;
     let value: T;
     try {
       value = await call();
@@ -189,11 +197,7 @@ export async function executeRun(work: RunWork) {
       const toolSession = session.toolGrants.length
         ? await openToolSession(session.id, session.toolGrants)
         : null;
-      if (toolSession && (await store.get(ownerId, runId)).run.cancelRequested) {
-        await owned((tx, current) => saveRun(tx, current, { status: "cancelled" }));
-        return;
-      }
-      await mutate(
+      const creation = await mutate(
         "creating",
         () =>
           runtime.createSession(
@@ -224,6 +228,8 @@ export async function executeRun(work: RunWork) {
         },
         submitted ? "observing" : "subscribing",
       );
+      // A Composio session created above is left unreconciled: it is free and carries only the policy.
+      if (creation === cancelledBeforeCreate) return;
       ({ run, session } = await store.get(ownerId, runId));
     }
     if (!session.externalId) throw new Error("Provider reference unavailable");
