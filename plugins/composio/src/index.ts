@@ -278,7 +278,6 @@ export class ComposioProvider implements ToolsProvider {
     toolkit: string,
     request?: ToolsRequestOptions,
   ): Promise<{ connectionId: string; redirectUrl: string }> {
-    assertKey(credentials);
     assertUser(userId);
     assertToolkit(toolkit);
     const existing = await this.listConnections(credentials, userId, request);
@@ -334,7 +333,6 @@ export class ComposioProvider implements ToolsProvider {
     connectionId: string,
     request?: ToolsRequestOptions,
   ): Promise<void> {
-    assertKey(credentials);
     assertUser(userId);
     assertConnection(connectionId);
     const owned = await this.send(
