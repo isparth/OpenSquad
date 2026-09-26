@@ -185,9 +185,9 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
             <div className="app-grant-row" key={toolkit}>
               <span>
                 {toolkit}
-                {apps.state !== "loading" &&
-                  apps.state !== "failed" &&
-                  !connected.includes(toolkit) && <span className="muted"> Not connected</span>}
+                {apps.state === "loaded" && !connected.includes(toolkit) && (
+                  <span className="muted"> Not connected</span>
+                )}
               </span>
               <select
                 aria-label={`Access for ${toolkit}`}
@@ -200,19 +200,25 @@ export function AgentForm({ agent, onSaved, onCancel, onBusyChange }: Props) {
               </select>
             </div>
           ))}
-          {apps.state === "failed" ? (
+          {apps.state === "failed" && (
             <p className="field-hint muted">Couldn't load connected apps.</p>
-          ) : (
-            appRows.length === 0 &&
-            apps.state !== "loading" && (
-              <p className="field-hint muted">Connect apps in Tools first.</p>
-            )
+          )}
+          {apps.state === "no-key" && (
+            <p className="field-hint muted">
+              Add your Composio key in Tools to see connected apps.
+            </p>
+          )}
+          {apps.state === "loaded" && appRows.length === 0 && (
+            <p className="field-hint muted">Connect apps in Tools first.</p>
           )}
           {Object.values(grants).includes("write") && (
             <p className="field-hint">
               This bot can create and change things in these apps without asking you first. Actions
               Composio marks as destructive, like deleting, are always blocked.
             </p>
+          )}
+          {appRows.length > 0 && (
+            <p className="field-hint muted">Changes apply to new conversations.</p>
           )}
         </fieldset>
       </fieldset>

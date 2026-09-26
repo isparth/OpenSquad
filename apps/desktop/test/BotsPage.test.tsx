@@ -276,6 +276,7 @@ describe("bot management", () => {
     expect(slack).toHaveValue("off");
     expect(linear).toHaveValue("write");
     expect(screen.getByText("Not connected")).toBeInTheDocument();
+    expect(screen.getByText("Changes apply to new conversations.")).toHaveClass("muted");
     const warning =
       "This bot can create and change things in these apps without asking you first. Actions Composio marks as destructive, like deleting, are always blocked.";
     expect(screen.getByText(warning)).toBeInTheDocument();
@@ -299,7 +300,10 @@ describe("bot management", () => {
   });
 
   it.each([
-    [new Error("tools credential unavailable"), "Connect apps in Tools first."],
+    [
+      new Error("tools credential unavailable"),
+      "Add your Composio key in Tools to see connected apps.",
+    ],
     [null, "Connect apps in Tools first."],
     [new Error("service unavailable"), "Couldn't load connected apps."],
   ])("explains why no apps are listed (%#)", async (failure, copy) => {
@@ -312,12 +316,32 @@ describe("bot management", () => {
     fireEvent.click(await screen.findByRole("button", { name: "New bot" }));
     expect(await screen.findByText(copy)).toHaveClass("muted");
     expect(screen.queryByRole("combobox", { name: /^Access for / })).not.toBeInTheDocument();
+    expect(screen.queryByText("Changes apply to new conversations.")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Bot name"), { target: { value: "Bob" } });
     api.createAgent.mockResolvedValue(alice);
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     await waitFor(() =>
       expect(api.createAgent).toHaveBeenCalledWith(expect.objectContaining({ toolGrants: [] })),
     );
+  });
+
+  it("keeps granted apps editable without a tools key and asks for the key", async () => {
+    vi.mocked(window.opensquad.listToolConnections).mockRejectedValue(
+      new Error("tools credential unavailable"),
+    );
+    api.getAgent.mockResolvedValue({
+      ...alice,
+      toolGrants: [{ toolkit: "github", access: "read" }],
+    });
+    await openAliceProfile();
+    fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
+    expect(
+      await screen.findByText("Add your Composio key in Tools to see connected apps."),
+    ).toHaveClass("muted");
+    expect(screen.getByRole("combobox", { name: "Access for github" })).toHaveValue("read");
+    expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connect apps in Tools first.")).not.toBeInTheDocument();
+    expect(screen.getByText("Changes apply to new conversations.")).toBeInTheDocument();
   });
 
   it("preserves form values on save failure and blocks duplicate submits while pending", async () => {
