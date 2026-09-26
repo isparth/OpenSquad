@@ -69,7 +69,7 @@ export async function executeRun(work: RunWork) {
       if (run.mutationInFlight || !run.active)
         throw new Error("Run cannot dispatch another mutation");
       if (phase === "creating" && run.cancelRequested) {
-        await saveRun(tx, run, { status: "cancelled" });
+        await saveRun(tx, run, { status: "cancelled", errorCode: null });
         return true;
       }
       await saveRun(tx, run, {
@@ -171,7 +171,7 @@ export async function executeRun(work: RunWork) {
     if (session.provider !== runtime.name)
       throw new Error("Runtime is unavailable for this session");
     if (mode === "execute" && run.cancelRequested) {
-      await owned((tx, current) => saveRun(tx, current, { status: "cancelled" }));
+      await owned((tx, current) => saveRun(tx, current, { status: "cancelled", errorCode: null }));
       return;
     }
     if (

@@ -966,7 +966,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
   async function runWorker(
     signal = new AbortController().signal,
     toolsCredentials?: { apiKey: string },
-    beforeExecute?: (runId: string) => void,
+    beforeExecute?: (runId: string) => void | Promise<void>,
   ) {
     const admitted = await runAdmission(app.db, {
       provider: runtime.name,
@@ -974,7 +974,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       features: runtime.features,
     })("dev-user", conversationId, { text: "Hello", clientRequestId: randomUUID() }, true);
     const token = await runtimeStore(app.db).claim("dev-user", admitted.run.id);
-    beforeExecute?.(admitted.run.id);
+    await beforeExecute?.(admitted.run.id);
     await executeRun({
       db: app.db,
       runtime,
@@ -1023,7 +1023,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
           if (++calls === 2)
             await app.db
               .update(conversationRuns)
-              .set({ cancelRequested: true })
+              .set({ cancelRequested: true, errorCode: "worker_lost" })
               .where(eq(conversationRuns.id, runId));
           return transaction(...args);
         });
@@ -1037,6 +1037,18 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     expect(row?.mutationInFlight).toBe(false);
     expect(runtime.createSession).not.toHaveBeenCalled();
     expect(runtime.sendInput).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale error code when an execute run starts already cancelled", async () => {
+    const row = await runWorker(undefined, undefined, async (runId) => {
+      await app.db
+        .update(conversationRuns)
+        .set({ cancelRequested: true, errorCode: "worker_lost" })
+        .where(eq(conversationRuns.id, runId));
+    });
+    expect(row?.status).toBe("cancelled");
+    expect(row?.errorCode).toBeNull();
+    expect(runtime.createSession).not.toHaveBeenCalled();
   });
 
   it("stops before creating the runtime session when cancelled during tool setup", async () => {
