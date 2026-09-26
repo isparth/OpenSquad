@@ -6,6 +6,7 @@ import {
   createRuntimeCredentialVault,
   runtimeVaultFileName,
   type SafeStorageLike,
+  toolsVaultFileName,
 } from "../src/main/runtime-credentials.js";
 
 const API_URL = "http://localhost:3000";
@@ -280,5 +281,38 @@ describe("storage lifecycle", () => {
       expect(await vault.set(bad)).toEqual({ state: "unavailable", reason: "not-configured" });
     }
     expect(await vault.set("x".repeat(4096))).toEqual({ state: "configured" });
+  });
+});
+
+describe("separate vault files", () => {
+  it("keeps the tools key in its own file without touching the runtime key", async () => {
+    const runtime = makeVault();
+    const tools = makeVault({ fileName: toolsVaultFileName });
+    expect(toolsVaultFileName).toBe("tools-key.v1.bin");
+    expect(await tools.set("ak_tools")).toEqual({ state: "configured" });
+    expect(await runtime.status()).toEqual({ state: "unavailable", reason: "not-configured" });
+    expect(await runtime.set(KEY)).toEqual({ state: "configured" });
+    expect(await tools.readKey()).toEqual({ ok: true, key: "ak_tools" });
+    expect(await runtime.readKey()).toEqual({ ok: true, key: KEY });
+    expect((await readdir(dir)).sort()).toEqual([runtimeVaultFileName, toolsVaultFileName].sort());
+    expect((await stat(join(dir, toolsVaultFileName))).mode & 0o777).toBe(0o600);
+    await tools.delete();
+    expect(await tools.status()).toEqual({ state: "unavailable", reason: "not-configured" });
+    expect(await runtime.readKey()).toEqual({ ok: true, key: KEY });
+  });
+
+  it("applies the same development-only policy to the tools vault", async () => {
+    const tools = makeVault({ fileName: toolsVaultFileName, packaged: true });
+    expect(await tools.set("ak_tools")).toEqual({
+      state: "unavailable",
+      reason: "authentication-required",
+    });
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it("rejects file names that are not plain vault names", () => {
+    for (const fileName of ["../escape.bin", "a/b.bin", "", "x.txt"]) {
+      expect(() => makeVault({ fileName })).toThrow();
+    }
   });
 });

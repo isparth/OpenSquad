@@ -15,6 +15,13 @@ const bridge: DesktopBridge = {
   cancelRun: (command) => ipcRenderer.invoke(IPC.cancelRun, command),
   reconcileRun: (command) => ipcRenderer.invoke(IPC.reconcileRun, command),
   refreshMemory: (command) => ipcRenderer.invoke(IPC.refreshMemory, command),
+  getToolsKeyStatus: () => ipcRenderer.invoke(IPC.getToolsKeyStatus),
+  setToolsKey: (key) => ipcRenderer.invoke(IPC.setToolsKey, key),
+  deleteToolsKey: () => ipcRenderer.invoke(IPC.deleteToolsKey),
+  listToolkits: (command) => ipcRenderer.invoke(IPC.listToolkits, command),
+  listToolConnections: () => ipcRenderer.invoke(IPC.listToolConnections),
+  startToolConnection: (command) => ipcRenderer.invoke(IPC.startToolConnection, command),
+  removeToolConnection: (command) => ipcRenderer.invoke(IPC.removeToolConnection, command),
 };
 
 contextBridge.exposeInMainWorld("opensquad", bridge);

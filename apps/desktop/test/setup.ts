@@ -14,4 +14,11 @@ window.opensquad = {
   cancelRun: vi.fn().mockRejectedValue(new Error("not implemented in test bridge")),
   reconcileRun: vi.fn().mockRejectedValue(new Error("not implemented in test bridge")),
   refreshMemory: vi.fn().mockResolvedValue({ update: null }),
+  getToolsKeyStatus: vi.fn().mockResolvedValue({ state: "unavailable", reason: "not-configured" }),
+  setToolsKey: vi.fn().mockResolvedValue({ state: "configured" }),
+  deleteToolsKey: vi.fn().mockResolvedValue({ state: "unavailable", reason: "not-configured" }),
+  listToolkits: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+  listToolConnections: vi.fn().mockResolvedValue({ items: [] }),
+  startToolConnection: vi.fn().mockRejectedValue(new Error("not implemented in test bridge")),
+  removeToolConnection: vi.fn().mockResolvedValue(undefined),
 };

@@ -16,6 +16,12 @@ import {
   sendMessageCommandSchema,
 } from "./runtime-commands.js";
 import { type RuntimeCredentialVault, runtimeKeySchema } from "./runtime-credentials.js";
+import {
+  listToolkitsCommandSchema,
+  removeToolConnectionCommandSchema,
+  startToolConnectionCommandSchema,
+  type ToolsCommands,
+} from "./tools-commands.js";
 
 const STATIC_ERRORS = new Set([
   "untrusted sender",
@@ -34,6 +40,11 @@ const STATIC_ERRORS = new Set([
   "resource not found",
   "request conflict",
   "service unavailable",
+  "tools credential unavailable",
+  "tools key rejected",
+  "too many active tools commands",
+  "tools command rate limit exceeded",
+  "unable to open browser",
 ]);
 
 const MAX_INVOKES_PER_MINUTE = 120;
@@ -51,10 +62,12 @@ export interface IpcController {
 export interface RegisterIpcDeps {
   vault: RuntimeCredentialVault;
   commands: RuntimeCommands;
+  toolsVault: RuntimeCredentialVault;
+  toolsCommands: ToolsCommands;
 }
 
 export function registerIpc(deps: RegisterIpcDeps): IpcController {
-  const { vault, commands } = deps;
+  const { vault, commands, toolsVault, toolsCommands } = deps;
   const trusted = new Set<WebContents>();
   const inFlight = new Map<WebContents, Set<AbortController>>();
   const invokeTimes = new Map<WebContents, number[]>();
@@ -190,6 +203,24 @@ export function registerIpc(deps: RegisterIpcDeps): IpcController {
     vaultOp(vaultMutationTimes, MAX_VAULT_MUTATIONS_PER_MINUTE, () => vault.delete()),
   );
 
+  handle(
+    IPC.getToolsKeyStatus,
+    noArgs,
+    vaultOp(vaultStatusTimes, MAX_VAULT_STATUS_PER_MINUTE, () => toolsVault.status()),
+  );
+  handle(
+    IPC.setToolsKey,
+    runtimeKeySchema,
+    vaultOp(vaultMutationTimes, MAX_VAULT_MUTATIONS_PER_MINUTE, (key: string) =>
+      toolsVault.set(key),
+    ),
+  );
+  handle(
+    IPC.deleteToolsKey,
+    noArgs,
+    vaultOp(vaultMutationTimes, MAX_VAULT_MUTATIONS_PER_MINUTE, () => toolsVault.delete()),
+  );
+
   handle(IPC.sendMessage, sendMessageCommandSchema, (command, signal) =>
     commands.sendMessage(command, signal),
   );
@@ -199,6 +230,16 @@ export function registerIpc(deps: RegisterIpcDeps): IpcController {
   );
   handle(IPC.refreshMemory, refreshMemoryCommandSchema, (command, signal) =>
     commands.refreshMemory(command, signal),
+  );
+  handle(IPC.listToolkits, listToolkitsCommandSchema, (command, signal) =>
+    toolsCommands.listToolkits(command, signal),
+  );
+  handle(IPC.listToolConnections, noArgs, (_arg, signal) => toolsCommands.listConnections(signal));
+  handle(IPC.startToolConnection, startToolConnectionCommandSchema, (command, signal) =>
+    toolsCommands.startConnection(command, signal),
+  );
+  handle(IPC.removeToolConnection, removeToolConnectionCommandSchema, (command, signal) =>
+    toolsCommands.removeConnection(command, signal),
   );
 
   return {
@@ -213,6 +254,7 @@ export function registerIpc(deps: RegisterIpcDeps): IpcController {
     shutdown(): void {
       for (const sender of [...inFlight.keys()]) revokeInFlight(sender);
       commands.abortAll();
+      toolsCommands.abortAll();
     },
   };
 }
