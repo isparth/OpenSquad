@@ -179,8 +179,15 @@ export async function executeRun(work: RunWork) {
       (run.phase === "admitted" || run.phase === "subscribing") &&
       !run.rootTurnId
     ) {
+      // No root turn was started at the provider, so a requested cancel is a clean cancel.
       await owned((tx, current) =>
-        saveRun(tx, current, { status: "failed", errorCode: "provider_failure" }),
+        saveRun(
+          tx,
+          current,
+          current.cancelRequested
+            ? { status: "cancelled", errorCode: null }
+            : { status: "failed", errorCode: "provider_failure" },
+        ),
       );
       return;
     }

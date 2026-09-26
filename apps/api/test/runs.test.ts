@@ -967,6 +967,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     signal = new AbortController().signal,
     toolsCredentials?: { apiKey: string },
     beforeExecute?: (runId: string) => void | Promise<void>,
+    mode: "execute" | "recover" = "execute",
   ) {
     const admitted = await runAdmission(app.db, {
       provider: runtime.name,
@@ -985,7 +986,7 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
       credentials: { apiKey: "dummy-user-key" },
       ...(toolsCredentials ? { toolsCredentials } : {}),
       signal,
-      mode: "execute",
+      mode,
     });
     const [row] = await app.db
       .select()
@@ -1050,6 +1051,30 @@ Nothing is saved about this user yet. If the user asks you to remember or forget
     expect(row?.errorCode).toBeNull();
     expect(runtime.createSession).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [true, "cancelled", null],
+    [false, "failed", "provider_failure"],
+  ])(
+    "recovers an unstarted run with cancelRequested=%s as %s",
+    async (cancelRequested, status, code) => {
+      const row = await runWorker(
+        undefined,
+        undefined,
+        async (runId) => {
+          await app.db
+            .update(conversationRuns)
+            .set({ cancelRequested, errorCode: "worker_lost" })
+            .where(eq(conversationRuns.id, runId));
+        },
+        "recover",
+      );
+      expect(row?.status).toBe(status);
+      expect(row?.errorCode).toBe(code);
+      expect(row?.active).toBe(false);
+      expect(runtime.createSession).not.toHaveBeenCalled();
+    },
+  );
 
   it("stops before creating the runtime session when cancelled during tool setup", async () => {
     await enableApps();
