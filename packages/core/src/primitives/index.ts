@@ -1,6 +1,8 @@
 // Core primitives. These belong to the platform and are never plugins.
 // See llm_docs/SPEC.md section 1.
 
+import type { AgentToolGrant } from "../capabilities/tools.js";
+
 export type Id = string;
 export type ISODate = string;
 
@@ -13,6 +15,7 @@ export interface Agent {
   avatarUrl?: string;
   instructions: string;
   sandboxEnabled: boolean;
+  toolGrants: AgentToolGrant[];
   createdAt: ISODate;
   updatedAt: ISODate;
 }
