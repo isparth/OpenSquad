@@ -230,6 +230,65 @@ describe("MarkdownText", () => {
     expect(container.textContent).toBe(text);
   });
 
+  const jsonDump = [
+    "{",
+    ...Array.from(
+      { length: 2_000 },
+      (_, i) => `  "snake_case_key_${i}": ["a*b", [${i}], "__x__"],`,
+    ),
+    `${" ".repeat(140)}"deep": [[[]]]`,
+    "}",
+  ].join("\n");
+
+  it.each([
+    ["a backtick-fenced JSON dump", `Here it is:\n\n\`\`\`json\n${jsonDump}\n\`\`\`\n\nDone.`],
+    ["a tilde-fenced JSON dump", `~~~~\n${jsonDump}\n~~~\n\`\`\`\n~~~~~\n\nDone.`],
+    ["an unclosed fence", `Streaming:\n\n\`\`\`\n${jsonDump}`],
+    [
+      "a fenced Markdown sample",
+      `Example:\n\n\`\`\`\`markdown\n${"- item\n".repeat(6_000)}${"> ".repeat(40)}deep\n\`\`\`\n\`\`\`\`\n\nEnd.`,
+    ],
+    ["an indented code block", `Code:\n\n${"    x_y_z *p [q] > - r\n".repeat(3_000)}\nEnd.`],
+    [
+      "prose with identifiers in inline code",
+      Array.from(
+        { length: 1_500 },
+        (_, i) => `Set \`some_long_config_name_${i}\` and \`arr[i][j]\` or \`a * b\`.`,
+      ).join("\n"),
+    ],
+  ])("renders %s as Markdown", (_label, text) => {
+    expect(text.length).toBeGreaterThan(20_000);
+    const container = renderMarkdown(text);
+    expect(container.querySelector(".chat-markdown")).not.toBeNull();
+    expect(container.querySelector("pre, code")).not.toBeNull();
+  });
+
+  // Each of these makes a naive code-aware scan skip text the parser treats as
+  // Markdown. They must still fall back.
+  const mixedRuns = `${"*_".repeat(50)}x`.repeat(100);
+  it.each([
+    ["an indented fence closed at column 0", `  \`\`\`\ncode\n\`\`\`\n${mixedRuns}`],
+    ["a fence inside a list item", `- a\n\n  \`\`\`\n  code\n\`\`\`\n${mixedRuns}`],
+    ["a fence line inside an HTML block", `<div>\n\`\`\`\n\n${mixedRuns}`],
+    ["a fence inside an HTML comment", `<!--\n\n\`\`\`\n-->\n${mixedRuns}\n\`\`\``],
+    ["a fence inside an indented code block", `    \`\`\`\n${mixedRuns}\n\`\`\``],
+    ["a code span opened on an earlier line", `a \`b\nc\` ${mixedRuns} \`d`],
+    ["a code span split by an HTML attribute", `<a title="\`">${mixedRuns}\``],
+    ["an autolink hiding a backtick", `<https://x.test/\`>${mixedRuns}\``],
+    ["an escaped backtick", `\\\`${mixedRuns}\``],
+    ["a link destination holding a backtick", `[a](\`) ${mixedRuns} \``],
+    ["a reference label holding a backtick", `[a][\`] ${mixedRuns} \`\n\n[\`]: https://x.test`],
+    ["an indented list continuation", `- a\n\n    ${mixedRuns}`],
+    ["indented lines after a paragraph", `para\n    ${mixedRuns}`],
+    ["a backtick-info fence", `\`\`\` a\`b\n${mixedRuns}\n\`\`\``],
+    ["a long backtick run", `${"`".repeat(33)}a${"`".repeat(33)}`],
+    ["a backtick-run storm", "`a ".repeat(12_000)],
+  ])("renders %s as plain text", (_label, text) => {
+    const container = renderMarkdown(text);
+    expect(container.querySelector(".chat-markdown")).toBeNull();
+    expect(container.textContent).toBe(text);
+  });
+
   it("still renders reasonably nested Markdown", () => {
     const container = renderMarkdown(
       `${"> ".repeat(8)}deep quote\n\n${Array.from({ length: 8 }, (_, i) => `${"  ".repeat(i)}- level ${i}`).join("\n")}`,

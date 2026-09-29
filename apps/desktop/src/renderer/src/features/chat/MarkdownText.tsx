@@ -62,8 +62,8 @@ const components: Components = {
 // micromark recurses per container and backtracks over delimiters, so hostile
 // input can overflow the stack or stall the renderer for seconds to minutes.
 // Text beyond these limits is shown as plain text instead. The limits were
-// measured to keep worst-case parses of 100k characters around a second or
-// less; ordinary replies stay far below them.
+// measured to keep worst-case parses of 100k characters well under a second;
+// ordinary replies stay far below them.
 export const MARKDOWN_MAX_LENGTH = 100_000;
 const MAX_MARKERS_PER_LINE = 16;
 const MAX_MARKERS = 5_000;
@@ -71,37 +71,164 @@ const MAX_LEADING_COLUMNS = 128;
 const MAX_DELIMITER_RUN = 100;
 const MAX_DELIMITERS = 5_000;
 const MAX_BRACKETS = 2_000;
+// An unmatched backtick run makes micromark scan to the end of the paragraph
+// for a closer, once per distinct run length, so both are capped.
+const MAX_BACKTICK_RUN = 32;
+const MAX_BACKTICK_RUNS = 10_000;
 // CommonMark line endings; \r alone counts too, so it must never survive.
 const LINE_ENDING = /\r\n|\r|\n/;
+const BLANK_LINE = /^[ \t]*$/;
 const CONTAINER_MARKER = /[ \t]*(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))/y;
+const CONTAINER_PREFIX = /^(?:[ \t]*(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$)))*[ \t]*/;
+const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
 
-export function isSafeForMarkdown(text: string): boolean {
-  if (text.length > MARKDOWN_MAX_LENGTH) return false;
-  let run = 0;
-  let delimiters = 0;
-  let brackets = 0;
-  for (const char of text) {
-    if (char === "*" || char === "_") {
-      if (++run > MAX_DELIMITER_RUN || ++delimiters > MAX_DELIMITERS) return false;
-    } else {
-      run = 0;
-      if ((char === "[" || char === "]") && ++brackets > MAX_BRACKETS) return false;
+type ScanCounts = { markers: number; delimiters: number; brackets: number; backtickRuns: number };
+type BacktickRun = { start: number; end: number; escaped: boolean };
+
+function leadingColumns(line: string): number {
+  let columns = 0;
+  for (const char of line) {
+    if (char === " ") columns += 1;
+    else if (char === "\t") columns += 4 - (columns % 4);
+    else break;
+  }
+  return columns;
+}
+
+// Inline HTML, autolinks, link destinations and reference labels are parsed
+// before a later backtick can open a code span, and may consume it.
+const SPAN_HAZARD = /<|\]\(|\]\[/;
+
+// Counts one Markdown (non-code) line. With `skipSpans`, text inside code
+// spans that pair up within this line is not counted. Returns false when a
+// limit is exceeded, "tainted" when later lines of the paragraph must not skip
+// spans: a run found no closer here (the parser may pair it with a later
+// line), or a hazard appeared outside a span.
+function scanInline(line: string, counts: ScanCounts, skipSpans: boolean): boolean | "tainted" {
+  const runs: BacktickRun[] = [];
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] !== "`") continue;
+    const start = index;
+    while (line[index + 1] === "`") index += 1;
+    if (index + 1 - start > MAX_BACKTICK_RUN || ++counts.backtickRuns > MAX_BACKTICK_RUNS)
+      return false;
+    let backslashes = 0;
+    while (line[start - 1 - backslashes] === "\\") backslashes += 1;
+    runs.push({ start, end: index + 1, escaped: backslashes % 2 === 1 });
+  }
+  // Code spans pair an opening run with the next run of the same length; an
+  // escaped first backtick shortens the opener by one. A right-to-left pass
+  // finds each run's closer in O(1), so the scan stays linear.
+  const closers: number[] = new Array(runs.length).fill(-1);
+  const nextByLength: number[] = new Array(MAX_BACKTICK_RUN + 1).fill(-1);
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index] as BacktickRun;
+    const length = run.end - run.start;
+    const opener = run.escaped ? length - 1 : length;
+    if (opener > 0) closers[index] = nextByLength[opener] ?? -1;
+    nextByLength[length] = index;
+  }
+  const skipped: Array<[number, number]> = [];
+  let tainted = !skipSpans;
+  let cursor = 0;
+  let checked = 0;
+  for (let index = 0; index < runs.length && !tainted; index += 1) {
+    const run = runs[index] as BacktickRun;
+    // Only text not yet checked; a hazard cannot straddle a backtick.
+    if (SPAN_HAZARD.test(line.slice(Math.max(cursor, checked), run.start))) tainted = true;
+    checked = run.end;
+    if (tainted || run.end - run.start - (run.escaped ? 1 : 0) === 0) continue;
+    const closer = closers[index] ?? -1;
+    // Literal here, but the parser may pair it with a later line: stop skipping.
+    if (closer < 0) tainted = true;
+    else {
+      const closing = runs[closer] as BacktickRun;
+      skipped.push([run.end, closing.start]);
+      cursor = closing.end;
+      index = closer;
     }
   }
-  let markers = 0;
-  for (const line of text.split(LINE_ENDING)) {
-    let columns = 0;
-    for (const char of line) {
-      if (char === " ") columns += 1;
-      else if (char === "\t") columns += 4;
-      else break;
+  if (!tainted && SPAN_HAZARD.test(line.slice(Math.max(cursor, checked)))) tainted = true;
+  let run = 0;
+  let span = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    const range = skipped[span];
+    if (range && index >= range[0]) {
+      index = range[1] - 1;
+      span += 1;
+      run = 0;
+      continue;
     }
+    const char = line[index];
+    // `*` and `_` share one run on purpose: it over-approximates micromark's
+    // separate runs, which only makes the fallback trigger earlier.
+    if (char === "*" || char === "_") {
+      if (++run > MAX_DELIMITER_RUN || ++counts.delimiters > MAX_DELIMITERS) return false;
+    } else {
+      run = 0;
+      if ((char === "[" || char === "]") && ++counts.brackets > MAX_BRACKETS) return false;
+    }
+  }
+  return tainted ? "tainted" : true;
+}
+
+// Code is not parsed for emphasis, links or containers, so it is not counted,
+// but only where the scan is sure the parser sees code too. Anything that could
+// make the two disagree switches to counting everything from there on:
+// - fences are recognized only at column 0, where no list item or quote can
+//   hold them; any other fence-like line, and any line that could start an
+//   HTML block (which may contain fence lines), ends code recognition;
+// - indented code needs a blank line before it and no list or quote so far;
+// - code spans must pair within their own line, in a paragraph so far free of
+//   unmatched backtick runs and of `<`, `](` or `][` outside spans.
+export function isSafeForMarkdown(text: string): boolean {
+  if (text.length > MARKDOWN_MAX_LENGTH) return false;
+  const counts: ScanCounts = { markers: 0, delimiters: 0, brackets: 0, backtickRuns: 0 };
+  let fence: { char: string; length: number } | null = null;
+  let recognizeCode = true;
+  let sawContainer = false;
+  let afterBlankOrCode = true;
+  let paragraphSpansSafe = true;
+  for (const line of text.split(LINE_ENDING)) {
+    if (fence) {
+      const close = FENCE_CLOSE.exec(line)?.[1];
+      if (close && close[0] === fence.char && close.length >= fence.length) {
+        fence = null;
+        paragraphSpansSafe = true;
+      }
+      continue;
+    }
+    if (BLANK_LINE.test(line)) {
+      afterBlankOrCode = true;
+      paragraphSpansSafe = true;
+      continue;
+    }
+    const columns = leadingColumns(line);
+    if (recognizeCode) {
+      const open = FENCE_OPEN.exec(line);
+      const marker = open?.[1];
+      if (marker && !(marker[0] === "`" && open[2]?.includes("`"))) {
+        fence = { char: marker[0] as string, length: marker.length };
+        afterBlankOrCode = false;
+        continue;
+      }
+      if (columns >= 4 && afterBlankOrCode && !sawContainer) continue;
+    }
+    afterBlankOrCode = false;
     if (columns > MAX_LEADING_COLUMNS) return false;
+    const content = line.slice(CONTAINER_PREFIX.exec(line)?.[0].length ?? 0);
+    if (content.startsWith("<") || content.startsWith("```") || content.startsWith("~~~"))
+      recognizeCode = false;
     CONTAINER_MARKER.lastIndex = 0;
     let lineMarkers = 0;
     while (CONTAINER_MARKER.exec(line)) {
-      if (++lineMarkers > MAX_MARKERS_PER_LINE || ++markers > MAX_MARKERS) return false;
+      if (++lineMarkers > MAX_MARKERS_PER_LINE || ++counts.markers > MAX_MARKERS) return false;
     }
+    if (lineMarkers > 0) sawContainer = true;
+    const result = scanInline(line, counts, recognizeCode && paragraphSpansSafe);
+    if (result === false) return false;
+    if (result === "tainted") paragraphSpansSafe = false;
   }
   return true;
 }
