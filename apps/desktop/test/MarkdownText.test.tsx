@@ -9,6 +9,11 @@ function renderMarkdown(text: string) {
 }
 
 describe("MarkdownText", () => {
+  it("scopes rendered Markdown under the chat-markdown class", () => {
+    const container = renderMarkdown("hello");
+    expect(container.firstElementChild).toHaveClass("chat-markdown");
+  });
+
   it("renders common Markdown structure as elements", () => {
     const container = renderMarkdown(
       [

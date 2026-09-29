@@ -1243,76 +1243,76 @@ input[type="file"]::file-selector-button {
 }
 /* Rendered Markdown in assistant bubbles and progress notes. Block structure
    provides the line breaks, so the bubble's pre-wrap is reset here. */
-.markdown {
+.chat-markdown {
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.markdown > :first-child {
+.chat-markdown > :first-child {
   margin-top: 0;
 }
-.markdown > :last-child {
+.chat-markdown > :last-child {
   margin-bottom: 0;
 }
-.markdown p,
-.markdown ul,
-.markdown ol,
-.markdown pre,
-.markdown blockquote {
+.chat-markdown p,
+.chat-markdown ul,
+.chat-markdown ol,
+.chat-markdown pre,
+.chat-markdown blockquote {
   margin: 0 0 0.6em;
 }
-.markdown h1,
-.markdown h2,
-.markdown h3,
-.markdown h4,
-.markdown h5,
-.markdown h6 {
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
   margin: 0.8em 0 0.4em;
   font-size: 1em;
   font-weight: 600;
   line-height: 1.35;
 }
-.markdown h1 {
+.chat-markdown h1 {
   font-size: 1.2em;
 }
-.markdown h2 {
+.chat-markdown h2 {
   font-size: 1.1em;
 }
-.markdown h6 {
+.chat-markdown h6 {
   color: var(--muted);
 }
-.markdown ul,
-.markdown ol {
+.chat-markdown ul,
+.chat-markdown ol {
   padding-left: 1.4em;
 }
 /* Tailwind's preflight strips list markers. */
-.markdown ul {
+.chat-markdown ul {
   list-style: disc;
 }
-.markdown ul ul {
+.chat-markdown ul ul {
   list-style: circle;
 }
-.markdown ol {
+.chat-markdown ol {
   list-style: decimal;
 }
-.markdown li > ul,
-.markdown li > ol {
+.chat-markdown li > ul,
+.chat-markdown li > ol {
   margin: 0.2em 0 0;
 }
-.markdown li + li {
+.chat-markdown li + li {
   margin-top: 0.2em;
 }
-.markdown li > p {
+.chat-markdown li > p {
   margin: 0;
 }
-.markdown code {
+.chat-markdown code {
   padding: 0.1em 0.3em;
   border-radius: 4px;
   background: var(--surface);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.9em;
 }
-.markdown pre {
+.chat-markdown pre {
   max-width: 100%;
   overflow-x: auto;
   padding: 8px 10px;
@@ -1321,24 +1321,24 @@ input[type="file"]::file-selector-button {
   background: var(--surface);
   line-height: 1.45;
 }
-.markdown pre code {
+.chat-markdown pre code {
   padding: 0;
   background: none;
   font-size: 12px;
   white-space: pre;
   overflow-wrap: normal;
 }
-.markdown blockquote {
+.chat-markdown blockquote {
   padding-left: 10px;
   border-left: 3px solid var(--border);
   color: var(--muted);
 }
-.markdown hr {
+.chat-markdown hr {
   margin: 0.8em 0;
   border: 0;
   border-top: 1px solid var(--border);
 }
-.markdown a {
+.chat-markdown a {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;

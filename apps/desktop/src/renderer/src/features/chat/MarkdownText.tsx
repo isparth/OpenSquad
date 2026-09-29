@@ -55,7 +55,7 @@ const components: Components = {
 
 export function MarkdownText({ text }: { text: string }) {
   return (
-    <div className="markdown">
+    <div className="chat-markdown">
       <Markdown
         allowedElements={ALLOWED_ELEMENTS}
         unwrapDisallowed
