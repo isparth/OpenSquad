@@ -139,6 +139,8 @@ export function statusError(status: number): string {
       return "resource not found";
     case 409:
       return "request conflict";
+    case 428:
+      return "tools key required";
     case 429:
       return "rate limited";
     default:
@@ -191,13 +193,15 @@ export interface RuntimeCommands {
 
 export interface RuntimeCommandsOptions {
   vault: RuntimeCredentialVault;
+  /** Its key is attached to sendMessage only, and silently omitted when unavailable. */
+  toolsVault?: RuntimeCredentialVault;
   fetch: typeof fetch;
   now?: () => number;
   timeoutMs?: number;
 }
 
 export function createRuntimeCommands(options: RuntimeCommandsOptions): RuntimeCommands {
-  const { vault } = options;
+  const { vault, toolsVault } = options;
   const fetchImpl = options.fetch;
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -224,6 +228,7 @@ export function createRuntimeCommands(options: RuntimeCommandsOptions): RuntimeC
     body: unknown,
     schema: z.ZodType<S>,
     callerSignal: AbortSignal | undefined,
+    withToolsKey = false,
   ): Promise<S> {
     admit();
     const controller = new AbortController();
@@ -237,6 +242,7 @@ export function createRuntimeCommands(options: RuntimeCommandsOptions): RuntimeC
       if (!credential.ok) throw new CommandError("runtime credential unavailable");
       const origin = vault.origin;
       if (origin === null) throw new CommandError("runtime credential unavailable");
+      const tools = withToolsKey ? await toolsVault?.readKey().catch(() => null) : null;
       let response: Response;
       try {
         response = await fetchImpl(`${origin}${path}`, {
@@ -244,6 +250,7 @@ export function createRuntimeCommands(options: RuntimeCommandsOptions): RuntimeC
           headers: {
             "Content-Type": "application/json",
             "X-OpenSquad-Runtime-Key": credential.key,
+            ...(tools?.ok ? { "X-OpenSquad-Tools-Key": tools.key } : {}),
           },
           body: JSON.stringify(body),
           redirect: "error",
@@ -285,6 +292,7 @@ export function createRuntimeCommands(options: RuntimeCommandsOptions): RuntimeC
         { text: parsed.data.text, clientRequestId: parsed.data.clientRequestId },
         sendMessageResultSchema,
         signal,
+        true,
       );
     },
     cancelRun: (command, signal) => {

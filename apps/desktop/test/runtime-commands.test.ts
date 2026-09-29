@@ -107,6 +107,58 @@ describe("request shape", () => {
     });
   });
 
+  it("attaches a saved tools key only to sendMessage", async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      jsonResponse(
+        url.endsWith("/messages")
+          ? { message, run }
+          : url.endsWith("/refresh")
+            ? { update: null }
+            : { run },
+      ),
+    );
+    const toolsVault = makeVault({ ok: true, key: "tools-test-key" });
+    const commands = createRuntimeCommands({
+      vault: makeVault(),
+      toolsVault,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    await commands.sendMessage(sendCommand);
+    await commands.cancelRun({ runId: RUN_ID });
+    await commands.reconcileRun({ runId: RUN_ID });
+    await commands.refreshMemory({ agentId: AGENT_ID });
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    expect(calls[0]?.[1].headers).toEqual({
+      "Content-Type": "application/json",
+      "X-OpenSquad-Runtime-Key": KEY,
+      "X-OpenSquad-Tools-Key": "tools-test-key",
+    });
+    for (const call of calls.slice(1))
+      expect(call[1].headers).toEqual({
+        "Content-Type": "application/json",
+        "X-OpenSquad-Runtime-Key": KEY,
+      });
+    expect(toolsVault.readKey).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["unavailable", makeVault({ ok: false, reason: "not-configured" })],
+    ["failing", { ...makeVault(), readKey: vi.fn(async () => Promise.reject(new Error("x"))) }],
+  ])("omits the tools key silently when the tools vault is %s", async (_state, toolsVault) => {
+    const fetchMock = vi.fn(async () => jsonResponse({ message, run }));
+    const commands = createRuntimeCommands({
+      vault: makeVault(),
+      toolsVault: toolsVault as RuntimeCredentialVault,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    await commands.sendMessage(sendCommand);
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    expect(calls[0]?.[1].headers).toEqual({
+      "Content-Type": "application/json",
+      "X-OpenSquad-Runtime-Key": KEY,
+    });
+  });
+
   it("posts cancel and reconcile to the run routes", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ run }));
     const commands = makeCommands(fetchMock as unknown as typeof fetch);
@@ -227,6 +279,7 @@ describe("response handling", () => {
     [403, "authentication required"],
     [404, "resource not found"],
     [409, "request conflict"],
+    [428, "tools key required"],
     [429, "rate limited"],
     [500, "service unavailable"],
     [503, "service unavailable"],

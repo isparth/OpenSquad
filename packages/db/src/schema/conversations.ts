@@ -107,6 +107,7 @@ export const runtimeSessions = pgTable(
       .default("hosted"),
     environmentStatus: text("environment_status").$type<EnvironmentStatus>(),
     toolGrants: jsonb("tool_grants").$type<AgentToolGrant[]>().notNull().default([]),
+    toolsExternalId: text("tools_external_id"),
   },
   (table) => [
     uniqueIndex("runtime_sessions_conversation_idx").on(table.conversationId),

@@ -1,4 +1,10 @@
-import type { AgentRuntimeProvider, RuntimeCredentials, StorageProvider } from "@opensquad/core";
+import type {
+  AgentRuntimeProvider,
+  RuntimeCredentials,
+  StorageProvider,
+  ToolsCredentials,
+  ToolsProvider,
+} from "@opensquad/core";
 import type { Database } from "@opensquad/db";
 import { ConversationError } from "./dto.js";
 import { collectRunFiles, type FileCollectionOptions } from "./file-collection.js";
@@ -10,6 +16,7 @@ import { backfillRunUsage } from "./usage-backfill.js";
 export function runCoordinator(
   db: Database,
   runtime: AgentRuntimeProvider,
+  tools: ToolsProvider,
   storage: StorageProvider,
   reportFailure: () => void,
   usageBackfill: UsageBackfillOptions,
@@ -23,6 +30,7 @@ export function runCoordinator(
     runId: string,
     credentials: RuntimeCredentials,
     mode: "execute" | "recover",
+    toolsCredentials?: ToolsCredentials,
   ) {
     if (closing) throw new ConversationError(503, "Runtime worker is shutting down");
     if (jobs.has(runId)) return;
@@ -36,10 +44,12 @@ export function runCoordinator(
     const work = executeRun({
       db,
       runtime,
+      tools,
       ownerId,
       runId,
       token,
       credentials,
+      ...(toolsCredentials ? { toolsCredentials } : {}),
       signal: controller.signal,
       mode,
     })
@@ -76,8 +86,9 @@ export function runCoordinator(
       runId: string,
       credentials: RuntimeCredentials,
       mode: "execute" | "recover",
+      toolsCredentials?: ToolsCredentials,
     ) {
-      const pending = launch(ownerId, runId, credentials, mode);
+      const pending = launch(ownerId, runId, credentials, mode, toolsCredentials);
       starts.add(pending);
       try {
         await pending;
