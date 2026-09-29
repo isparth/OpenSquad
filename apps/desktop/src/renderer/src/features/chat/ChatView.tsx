@@ -12,6 +12,7 @@ import { useApiResource } from "../agents/useApiResource.js";
 import { useRuntimeKey } from "../runtime-key/RuntimeKeyContext.js";
 import { CommandRow } from "./CommandRow.js";
 import { ConversationFiles } from "./ConversationFiles.js";
+import { MarkdownText } from "./MarkdownText.js";
 import { useConversationStream } from "./useConversationStream.js";
 
 const RECONCILE_CODES = new Set(["uncertain_mutation", "worker_lost", "stream_disconnected"]);
@@ -32,6 +33,8 @@ function MessageBody({ message }: { message: ConversationMessage }) {
         .map((part) =>
           part.type === "command" ? (
             <CommandRow key={part.index} part={part} status={message.status} />
+          ) : part.type === "text" && message.role === "assistant" ? (
+            <MarkdownText key={part.index} text={part.text} />
           ) : (
             <span key={part.index}>{part.type === "text" ? part.text : "[image]"}</span>
           ),
