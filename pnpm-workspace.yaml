@@ -10,3 +10,13 @@ allowBuilds:
   electron: false
   electron-winstaller: false
   "@clerk/shared": false
+
+# Seven-day dependency rule: react-markdown's parser chain resolved to micromark
+# releases from 2026-09-26/27. Hold them at the previous releases until the new
+# ones are old enough; delete an entry once its latest release qualifies.
+overrides:
+  mdast-util-to-markdown: 2.1.2
+  micromark: 4.0.2
+  micromark-core-commonmark: 2.0.3
+  micromark-factory-space: 2.0.1
+  micromark-util-types: 2.0.2
