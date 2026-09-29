@@ -68,6 +68,9 @@ export const MARKDOWN_MAX_LENGTH = 100_000;
 // Streaming re-parses the whole reply on every delta; past this length it
 // shows plain text until the reply completes, then renders Markdown once.
 export const STREAMING_MARKDOWN_MAX_LENGTH = 20_000;
+// Soft breaks each become an element, so a flood of short lines renders for seconds
+// even though it parses fast. Ordinary 100k-char replies are 1-2k lines.
+const MAX_LINES = 10_000;
 const MAX_MARKERS_PER_LINE = 16;
 const MAX_MARKERS = 5_000;
 const MAX_LEADING_COLUMNS = 128;
@@ -193,7 +196,9 @@ export function isSafeForMarkdown(text: string): boolean {
   let sawContainer = false;
   let afterBlankOrCode = true;
   let paragraphSpansSafe = true;
-  for (const line of text.split(LINE_ENDING)) {
+  const lines = text.split(LINE_ENDING);
+  if (lines.length > MAX_LINES) return false;
+  for (const line of lines) {
     if (fence) {
       const close = FENCE_CLOSE.exec(line)?.[1];
       if (close && close[0] === fence.char && close.length >= fence.length) {

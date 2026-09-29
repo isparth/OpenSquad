@@ -206,6 +206,23 @@ describe("MarkdownText", () => {
     expect(container.querySelectorAll("br")).toHaveLength(1);
   });
 
+  // Each soft break becomes its own element, so a flood of lines renders for seconds.
+  it.each([
+    ["LF", "a\n"],
+    ["CR", "a\r"],
+    ["CRLF", "a\r\n"],
+    ["blank-separated", "a\n\n"],
+  ])("renders a %s line flood as plain text", (_label, line) => {
+    const text = line.repeat(10_001);
+    const container = renderMarkdown(text);
+    expect(container.querySelector("p, br")).toBeNull();
+    expect(container.textContent).toBe(text);
+  });
+
+  it("still renders replies just under the line limit as Markdown", () => {
+    expect(renderMarkdown(`**b**\n${"a\n".repeat(9_998)}`).querySelector("strong")).not.toBeNull();
+  });
+
   it("renders over-long replies as plain text", () => {
     const text = `**bold** ${"a".repeat(MARKDOWN_MAX_LENGTH)}`;
     const container = renderMarkdown(text);
