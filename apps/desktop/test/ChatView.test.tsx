@@ -627,6 +627,107 @@ describe("chat view", () => {
     expect(text.closest(".chat-message")).toHaveClass("commentary");
   });
 
+  it("renders assistant replies and progress notes as Markdown", async () => {
+    renderChat();
+    const source = await selectConversation();
+    source.emit(
+      "conversation.snapshot",
+      snapshot({
+        latestMessages: [
+          assistantMessage("m-note", "2", "commentary", [
+            { index: 0, type: "text", text: "Checking **the file**", completed: true },
+          ]),
+          assistantMessage("m-final", "3", "final", [
+            {
+              index: 0,
+              type: "text",
+              text: "## Result\n\n- [docs](https://x.test/a)\n- [bad](javascript:alert(1))\n\n<b>raw</b>",
+              completed: true,
+            },
+          ]),
+        ],
+      }),
+    );
+    const note = screen.getByText("the file");
+    expect(note.tagName).toBe("STRONG");
+    expect(note.closest(".chat-commentary")).not.toBeNull();
+    const bubble = screen.getByRole("heading", { name: "Result" }).closest(".chat-bubble");
+    expect(bubble).not.toBeNull();
+    expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute("href", "https://x.test/a");
+    expect(screen.queryByRole("link", { name: "bad" })).toBeNull();
+    expect(bubble?.querySelector("b")).toBeNull();
+    expect(bubble).toHaveTextContent("<b>raw</b>");
+  });
+
+  it("keeps the thread readable when a reply is a nesting bomb", async () => {
+    renderChat();
+    const source = await selectConversation();
+    const bomb = `${">".repeat(50_000)} boom`;
+    source.emit(
+      "conversation.snapshot",
+      snapshot({
+        latestMessages: [
+          userMessage("1"),
+          assistantMessage("m-bomb", "2", "final", [
+            { index: 0, type: "text", text: bomb, completed: true },
+          ]),
+          assistantMessage("m-after", "3", "final", [
+            { index: 0, type: "text", text: "Still **here**", completed: true },
+          ]),
+        ],
+      }),
+    );
+    expect(await screen.findByText("hello")).toBeInTheDocument();
+    expect(screen.getByText("here").tagName).toBe("STRONG");
+    expect(screen.getByText(bomb)).toBeInTheDocument();
+  });
+
+  it("keeps user messages as literal text", async () => {
+    renderChat();
+    const source = await selectConversation();
+    const message = userMessage("1");
+    message.content = [
+      { index: 0, type: "text", text: "**not bold** [x](https://x.test)", completed: true },
+    ];
+    source.emit("conversation.snapshot", snapshot({ latestMessages: [message] }));
+    const text = screen.getByText("**not bold** [x](https://x.test)");
+    expect(text.closest(".chat-bubble")?.querySelector("strong, a")).toBeNull();
+  });
+
+  it("renders partial Markdown while a reply is streaming", async () => {
+    renderChat();
+    const source = await selectConversation();
+    source.emit("conversation.snapshot", snapshot({ activeRun: run() }));
+    source.emit("message.created", {
+      message: {
+        ...assistantMessage("m-stream", "2", "final", [
+          { index: 0, type: "text", text: "", completed: false },
+        ]),
+        status: "running",
+      },
+    });
+    source.emit("message.delta", { messageId: "m-stream", contentIndex: 0, text: "**Par" });
+    await waitFor(() => expect(screen.getByText(/\*\*Par/)).toBeInTheDocument());
+    // The running indicator sits at the end of the last line, not on its own.
+    const bubble = document.querySelector(".chat-bubble");
+    expect(bubble?.querySelectorAll(".chat-typing")).toHaveLength(1);
+    expect(bubble?.querySelector("p > .chat-typing")).not.toBeNull();
+    source.emit("message.delta", { messageId: "m-stream", contentIndex: 0, text: "tial\n\n```" });
+    await waitFor(() => expect(screen.getByText(/\*\*Partial/)).toBeInTheDocument());
+    source.emit("message.delta", { messageId: "m-stream", contentIndex: 0, text: "js\nx = 1" });
+    await waitFor(() =>
+      expect(document.querySelector(".chat-bubble pre code")).toHaveTextContent("x = 1"),
+    );
+    source.emit("message.completed", {
+      message: {
+        ...assistantMessage("m-stream", "2", "final", [
+          { index: 0, type: "text", text: "**Partial\n\n```js\nx = 1", completed: true },
+        ]),
+      },
+    });
+    await waitFor(() => expect(document.querySelector(".chat-typing")).toBeNull());
+  });
+
   it("shows sandbox startup and reset notices from snapshot and environment events", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;

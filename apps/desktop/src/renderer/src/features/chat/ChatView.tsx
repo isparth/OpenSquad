@@ -12,6 +12,7 @@ import { useApiResource } from "../agents/useApiResource.js";
 import { useRuntimeKey } from "../runtime-key/RuntimeKeyContext.js";
 import { CommandRow } from "./CommandRow.js";
 import { ConversationFiles } from "./ConversationFiles.js";
+import { MarkdownText } from "./MarkdownText.js";
 import { useConversationStream } from "./useConversationStream.js";
 
 const RECONCILE_CODES = new Set(["uncertain_mutation", "worker_lost", "stream_disconnected"]);
@@ -24,18 +25,32 @@ function runNeedsReconcile(run: ConversationRun | null): boolean {
   );
 }
 
-function MessageBody({ message }: { message: ConversationMessage }) {
+function MessageBody({ message, typing }: { message: ConversationMessage; typing: boolean }) {
+  const parts = [...message.content].sort((a, b) => a.index - b.index);
+  const last = parts.at(-1);
+  // Markdown places the running indicator inside its last line; anything else
+  // gets it appended after the content.
+  const inlineTyping = typing && last?.type === "text" && message.role === "assistant";
   return (
     <>
-      {[...message.content]
-        .sort((a, b) => a.index - b.index)
-        .map((part) =>
-          part.type === "command" ? (
-            <CommandRow key={part.index} part={part} status={message.status} />
-          ) : (
-            <span key={part.index}>{part.type === "text" ? part.text : "[image]"}</span>
-          ),
-        )}
+      {parts.map((part) =>
+        part.type === "command" ? (
+          <CommandRow key={part.index} part={part} status={message.status} />
+        ) : part.type === "text" && message.role === "assistant" ? (
+          <MarkdownText
+            key={part.index}
+            text={part.text}
+            streaming={inlineTyping && part === last}
+          />
+        ) : (
+          <span key={part.index}>{part.type === "text" ? part.text : "[image]"}</span>
+        ),
+      )}
+      {typing && !inlineTyping && (
+        <span className="chat-typing" aria-hidden="true">
+          {" …"}
+        </span>
+      )}
     </>
   );
 }
@@ -454,10 +469,12 @@ function Thread({
             >
               <span className="chat-author">{authorName(message, thread.participants, agent)}</span>
               <div className={commentary ? "chat-commentary" : "chat-bubble"}>
-                <MessageBody message={message} />
-                {message.role === "assistant" && message.status === "running" && !hasCommand && (
-                  <span aria-hidden="true"> …</span>
-                )}
+                <MessageBody
+                  message={message}
+                  typing={
+                    message.role === "assistant" && message.status === "running" && !hasCommand
+                  }
+                />
               </div>
               {files.length > 0 && (
                 <ConversationFiles conversationId={conversationId} files={files} />
