@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from "react";
+import { Component, memo, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 
 // Bot replies are untrusted: tool output fed to the model can be prompt-injected.
@@ -130,7 +130,8 @@ class MarkdownBoundary extends Component<
   }
 }
 
-export function MarkdownText({ text }: { text: string }) {
+// Every streamed delta re-renders the thread; unchanged messages skip the parse.
+export const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
   if (!isSafeForMarkdown(text)) return <PlainText text={text} />;
   return (
     <MarkdownBoundary text={text}>
@@ -146,4 +147,4 @@ export function MarkdownText({ text }: { text: string }) {
       </div>
     </MarkdownBoundary>
   );
-}
+});
