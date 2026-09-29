@@ -100,7 +100,14 @@ const sessionEchoSchema = z.object({
     connected_accounts: z.record(z.string(), z.array(z.string())),
     workbench: z.object({ enable: z.boolean() }),
     manage_connections: z.object({ enabled: z.boolean() }),
-    premium_usage: z.boolean(),
+    // Composio stopped echoing this on 2026-09-29 (absent whether sent false, {} or omitted), so
+    // it can no longer be verified. Premium tools live in their own toolkits, which the exact
+    // toolkit/tool/meta-tool checks exclude; a premium mechanism outside those lists would be
+    // unguarded. Any echoed value other than false still fails. The `instant` key that appeared
+    // the same day is `{ return_instant_charge: false }` regardless of premium settings (charge
+    // reporting, not access), so it is not checked. Other unknown config keys are ignored too:
+    // audit each new echoed field.
+    premium_usage: z.literal(false).optional(),
   }),
 });
 
@@ -443,7 +450,6 @@ export class ComposioProvider implements ToolsProvider {
     return (
       config.workbench.enable === false &&
       config.manage_connections.enabled === false &&
-      config.premium_usage === false &&
       sameSet(echo.tool_router_tools, META_TOOLS) &&
       echo.mcp.type === "http" &&
       isSessionMcpUrl(echo.mcp.url, echo.session_id)

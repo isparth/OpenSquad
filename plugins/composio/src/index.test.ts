@@ -472,6 +472,15 @@ describe("removeConnection", () => {
 });
 
 describe("createSession", () => {
+  it("accepts the 2026-09-29 echo shape: no premium_usage, new instant key", async () => {
+    const echo = sessionEcho({}, { instant: { return_instant_charge: false } });
+    delete (echo.config as Record<string, unknown>).premium_usage;
+    const { provider } = stub(json(echo, 201));
+    await expect(provider.createSession(credentials, "dev-user", grants)).resolves.toMatchObject({
+      externalId: "trs_abc123",
+    });
+  });
+
   it("sends the exact policy body and returns the MCP server", async () => {
     const { provider, calls } = stub(json(sessionEcho(), 201));
     expect(await provider.createSession(credentials, "dev-user", grants)).toEqual({
@@ -540,6 +549,9 @@ describe("createSession", () => {
     ["workbench on", {}, { workbench: { enable: true } }],
     ["manage connections on", {}, { manage_connections: { enabled: true } }],
     ["premium usage on", {}, { premium_usage: true }],
+    ["premium usage enabled object", {}, { premium_usage: {} }],
+    ["premium usage null", {}, { premium_usage: null }],
+    ["premium usage string", {}, { premium_usage: "false" }],
     ["extra router tool", { tool_router_tools: [...META, "GITHUB_DELETE_A_REPOSITORY"] }, {}],
     ["missing router tool", { tool_router_tools: META.slice(1) }, {}],
     [
