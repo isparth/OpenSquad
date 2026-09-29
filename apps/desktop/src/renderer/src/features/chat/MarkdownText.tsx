@@ -313,6 +313,7 @@ function rehypeTrailingIndicator() {
     }
     host.children ??= [];
     // Code text ends with a newline, which would push the indicator down a line.
+    // This plugin only runs while streaming, so completed code keeps its newline.
     const tail = host.children.at(-1);
     if (tail?.type === "text" && tail.value?.endsWith("\n")) tail.value = tail.value.slice(0, -1);
     host.children.push({
@@ -324,6 +325,7 @@ function rehypeTrailingIndicator() {
   };
 }
 
+// Passed to react-markdown only while `streaming` is true.
 const streamingRehypePlugins = [rehypeTrailingIndicator];
 
 function TypingIndicator() {
