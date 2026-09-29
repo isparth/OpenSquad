@@ -65,6 +65,9 @@ const components: Components = {
 // measured to keep worst-case parses of 100k characters well under a second;
 // ordinary replies stay far below them.
 export const MARKDOWN_MAX_LENGTH = 100_000;
+// Streaming re-parses the whole reply on every delta; past this length it
+// shows plain text until the reply completes, then renders Markdown once.
+export const STREAMING_MARKDOWN_MAX_LENGTH = 20_000;
 const MAX_MARKERS_PER_LINE = 16;
 const MAX_MARKERS = 5_000;
 const MAX_LEADING_COLUMNS = 128;
@@ -377,7 +380,8 @@ export const MarkdownText = memo(function MarkdownText({
   /** Show the running indicator at the end of the last line. */
   streaming?: boolean;
 }) {
-  if (!isSafeForMarkdown(text)) return <PlainText text={text} streaming={streaming} />;
+  if ((streaming && text.length > STREAMING_MARKDOWN_MAX_LENGTH) || !isSafeForMarkdown(text))
+    return <PlainText text={text} streaming={streaming} />;
   return (
     <MarkdownBoundary text={text} streaming={streaming}>
       <div className="chat-markdown">

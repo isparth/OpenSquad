@@ -1,6 +1,10 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { MARKDOWN_MAX_LENGTH, MarkdownText } from "@/features/chat/MarkdownText.js";
+import {
+  MARKDOWN_MAX_LENGTH,
+  MarkdownText,
+  STREAMING_MARKDOWN_MAX_LENGTH,
+} from "@/features/chat/MarkdownText.js";
 
 afterEach(cleanup);
 
@@ -323,6 +327,29 @@ describe("MarkdownText", () => {
     const text = `${">".repeat(50_000)} x`;
     const { container } = render(<MarkdownText text={text} streaming />);
     expect(container.querySelector(".chat-typing")).toHaveTextContent("…");
+  });
+
+  describe("long streaming replies", () => {
+    const sized = (length: number) => `**bold** ${"a".repeat(length - 9)}`;
+
+    it("render Markdown up to the streaming limit", () => {
+      const text = sized(STREAMING_MARKDOWN_MAX_LENGTH);
+      expect(text).toHaveLength(STREAMING_MARKDOWN_MAX_LENGTH);
+      const { container } = render(<MarkdownText text={text} streaming />);
+      expect(container.querySelector("strong")).not.toBeNull();
+      expect(container.querySelector("p > .chat-typing")).not.toBeNull();
+    });
+
+    it("render plain text with the indicator past the limit, then Markdown when done", () => {
+      const text = sized(STREAMING_MARKDOWN_MAX_LENGTH + 1);
+      const { container, rerender } = render(<MarkdownText text={text} streaming />);
+      expect(container.querySelector(".chat-markdown")).toBeNull();
+      expect(container.querySelector("span")?.textContent).toBe(text);
+      expect(container.querySelector(".chat-typing")).not.toBeNull();
+      rerender(<MarkdownText text={text} />);
+      expect(container.querySelector("strong")).not.toBeNull();
+      expect(container.querySelector(".chat-typing")).toBeNull();
+    });
   });
 
   it("omits the indicator when not streaming", () => {
