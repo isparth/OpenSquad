@@ -1,3 +1,4 @@
+import { Component, type ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 
 // Bot replies are untrusted: tool output fed to the model can be prompt-injected.
@@ -56,17 +57,93 @@ const components: Components = {
   },
 };
 
+// micromark recurses per container and backtracks over delimiters, so hostile
+// input can overflow the stack or stall the renderer for seconds to minutes.
+// Text beyond these limits is shown as plain text instead. The limits were
+// measured to keep worst-case parses of 100k characters around a second or
+// less; ordinary replies stay far below them.
+export const MARKDOWN_MAX_LENGTH = 100_000;
+const MAX_MARKERS_PER_LINE = 16;
+const MAX_MARKERS = 5_000;
+const MAX_LEADING_COLUMNS = 128;
+const MAX_DELIMITER_RUN = 100;
+const MAX_DELIMITERS = 5_000;
+const MAX_BRACKETS = 2_000;
+const CONTAINER_MARKER = /[ \t]*(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))/y;
+
+export function isSafeForMarkdown(text: string): boolean {
+  if (text.length > MARKDOWN_MAX_LENGTH) return false;
+  let run = 0;
+  let delimiters = 0;
+  let brackets = 0;
+  for (const char of text) {
+    if (char === "*" || char === "_") {
+      if (++run > MAX_DELIMITER_RUN || ++delimiters > MAX_DELIMITERS) return false;
+    } else {
+      run = 0;
+      if ((char === "[" || char === "]") && ++brackets > MAX_BRACKETS) return false;
+    }
+  }
+  let markers = 0;
+  for (const line of text.split("\n")) {
+    let columns = 0;
+    for (const char of line) {
+      if (char === " ") columns += 1;
+      else if (char === "\t") columns += 4;
+      else break;
+    }
+    if (columns > MAX_LEADING_COLUMNS) return false;
+    CONTAINER_MARKER.lastIndex = 0;
+    let lineMarkers = 0;
+    while (CONTAINER_MARKER.exec(line)) {
+      if (++lineMarkers > MAX_MARKERS_PER_LINE || ++markers > MAX_MARKERS) return false;
+    }
+  }
+  return true;
+}
+
+function PlainText({ text }: { text: string }) {
+  return <span>{text}</span>;
+}
+
+// Last line of defence: a parser or renderer failure must not blank the thread.
+class MarkdownBoundary extends Component<
+  { text: string; children: ReactNode },
+  { text: string; failed: boolean }
+> {
+  override state = { text: this.props.text, failed: false };
+
+  static getDerivedStateFromProps(
+    props: { text: string },
+    state: { text: string; failed: boolean },
+  ) {
+    // Streaming changes the text; give the new text a fresh attempt.
+    return props.text === state.text ? null : { text: props.text, failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  override render() {
+    return this.state.failed ? <PlainText text={this.props.text} /> : this.props.children;
+  }
+}
+
 export function MarkdownText({ text }: { text: string }) {
+  if (!isSafeForMarkdown(text)) return <PlainText text={text} />;
   return (
-    <div className="chat-markdown">
-      <Markdown
-        allowedElements={ALLOWED_ELEMENTS}
-        unwrapDisallowed
-        urlTransform={httpsOnly}
-        components={components}
-      >
-        {text}
-      </Markdown>
-    </div>
+    <MarkdownBoundary text={text}>
+      <div className="chat-markdown">
+        <Markdown
+          allowedElements={ALLOWED_ELEMENTS}
+          unwrapDisallowed
+          urlTransform={httpsOnly}
+          components={components}
+        >
+          {text}
+        </Markdown>
+      </div>
+    </MarkdownBoundary>
   );
 }

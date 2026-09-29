@@ -1,6 +1,6 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { MarkdownText } from "@/features/chat/MarkdownText.js";
+import { MARKDOWN_MAX_LENGTH, MarkdownText } from "@/features/chat/MarkdownText.js";
 
 afterEach(cleanup);
 
@@ -144,6 +144,42 @@ describe("MarkdownText", () => {
     const container = renderMarkdown("| a | b |\n| - | - |\n| 1 | 2 |\n\n~~gone~~");
     expect(container.querySelector("table")).toBeNull();
     expect(container.querySelector("del")).toBeNull();
+  });
+
+  it("renders over-long replies as plain text", () => {
+    const text = `**bold** ${"a".repeat(MARKDOWN_MAX_LENGTH)}`;
+    const container = renderMarkdown(text);
+    expect(container.querySelector("strong")).toBeNull();
+    expect(container.textContent).toBe(text);
+  });
+
+  // Each of these overflows the stack or takes seconds to minutes in the parser.
+  it.each([
+    ["nested blockquotes", `${">".repeat(50_000)} x`],
+    ["spaced nested blockquotes", `${"> ".repeat(20_000)}x`],
+    ["inline nested list markers", `${"- ".repeat(20_000)}x`],
+    ["numbered list markers", `${"1. ".repeat(20_000)}x`],
+    [
+      "indentation-nested lists",
+      Array.from({ length: 300 }, (_, i) => `${"  ".repeat(i)}- x`).join("\n"),
+    ],
+    ["emphasis delimiter runs", `${"*".repeat(40_000)}x${"*".repeat(40_000)}`],
+    ["mixed delimiter runs", `${"*_".repeat(40_000)}x`],
+    ["many emphasis delimiters", "*a_ ".repeat(3_000)],
+    ["many nested container lines", `${"> ".repeat(16)}x\n`.repeat(400)],
+    ["unmatched brackets", `${"[a ".repeat(15_000)}${"](b) ".repeat(5_000)}`],
+  ])("renders %s as plain text without hanging", (_label, text) => {
+    const container = renderMarkdown(text);
+    expect(container.querySelector("blockquote, ul, ol, em, strong, a")).toBeNull();
+    expect(container.textContent).toBe(text);
+  });
+
+  it("still renders reasonably nested Markdown", () => {
+    const container = renderMarkdown(
+      `${"> ".repeat(8)}deep quote\n\n${Array.from({ length: 8 }, (_, i) => `${"  ".repeat(i)}- level ${i}`).join("\n")}`,
+    );
+    expect(container.querySelectorAll("blockquote")).toHaveLength(8);
+    expect(container.querySelectorAll("ul")).toHaveLength(8);
   });
 
   it("renders unterminated Markdown while streaming", () => {

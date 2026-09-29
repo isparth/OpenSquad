@@ -659,6 +659,29 @@ describe("chat view", () => {
     expect(bubble).toHaveTextContent("<b>raw</b>");
   });
 
+  it("keeps the thread readable when a reply is a nesting bomb", async () => {
+    renderChat();
+    const source = await selectConversation();
+    const bomb = `${">".repeat(50_000)} boom`;
+    source.emit(
+      "conversation.snapshot",
+      snapshot({
+        latestMessages: [
+          userMessage("1"),
+          assistantMessage("m-bomb", "2", "final", [
+            { index: 0, type: "text", text: bomb, completed: true },
+          ]),
+          assistantMessage("m-after", "3", "final", [
+            { index: 0, type: "text", text: "Still **here**", completed: true },
+          ]),
+        ],
+      }),
+    );
+    expect(await screen.findByText("hello")).toBeInTheDocument();
+    expect(screen.getByText("here").tagName).toBe("STRONG");
+    expect(screen.getByText(bomb)).toBeInTheDocument();
+  });
+
   it("keeps user messages as literal text", async () => {
     renderChat();
     const source = await selectConversation();
