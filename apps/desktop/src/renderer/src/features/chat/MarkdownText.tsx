@@ -71,6 +71,8 @@ const MAX_LEADING_COLUMNS = 128;
 const MAX_DELIMITER_RUN = 100;
 const MAX_DELIMITERS = 5_000;
 const MAX_BRACKETS = 2_000;
+// CommonMark line endings; \r alone counts too, so it must never survive.
+const LINE_ENDING = /\r\n|\r|\n/;
 const CONTAINER_MARKER = /[ \t]*(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))/y;
 
 export function isSafeForMarkdown(text: string): boolean {
@@ -87,7 +89,7 @@ export function isSafeForMarkdown(text: string): boolean {
     }
   }
   let markers = 0;
-  for (const line of text.split("\n")) {
+  for (const line of text.split(LINE_ENDING)) {
     let columns = 0;
     for (const char of line) {
       if (char === " ") columns += 1;
@@ -109,21 +111,23 @@ type MdastNode = { type: string; value?: string; children?: MdastNode[] };
 // CommonMark joins single newlines into one paragraph line, but replies use
 // them for addresses and short lines, which the old pre-wrap bubbles kept.
 // Turn each soft line break inside phrasing text into a hard break, like
-// remark-breaks. Code keeps its own `value`, so it is untouched. Iterative,
+// remark-breaks. Code keeps its own `value` and gets no breaks. Iterative,
 // so deep trees cannot overflow the stack here.
 function remarkSoftBreaks() {
   return (tree: MdastNode) => {
     const stack: MdastNode[] = [tree];
     for (let node = stack.pop(); node; node = stack.pop()) {
+      // Code and raw HTML keep their value; normalize its line endings.
+      if (node.value?.includes("\r")) node.value = node.value.replace(/\r\n?/g, "\n");
       if (!node.children) continue;
       const children: MdastNode[] = [];
       for (const child of node.children) {
-        if (child.type !== "text" || !child.value?.includes("\n")) {
+        if (child.type !== "text" || !child.value || !/[\r\n]/.test(child.value)) {
           children.push(child);
           stack.push(child);
           continue;
         }
-        child.value.split("\n").forEach((value, index) => {
+        child.value.split(LINE_ENDING).forEach((value, index) => {
           if (index > 0) children.push({ type: "break" });
           if (value) children.push({ type: "text", value });
         });

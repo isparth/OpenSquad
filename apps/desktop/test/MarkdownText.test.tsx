@@ -169,6 +169,28 @@ describe("MarkdownText", () => {
     expect(items[1]?.querySelector("strong br")).not.toBeNull();
   });
 
+  it.each([
+    ["CRLF", "a\r\nb"],
+    ["CR", "a\rb"],
+  ])("turns %s soft breaks into <br> without leaking \\r", (_label, text) => {
+    const container = renderMarkdown(text);
+    const paragraph = container.querySelector("p");
+    expect(paragraph?.querySelectorAll("br")).toHaveLength(1);
+    expect(paragraph?.innerHTML).not.toMatch(/\r/);
+    expect(paragraph?.textContent?.replace(/\n/g, "")).toBe("ab");
+  });
+
+  it("normalizes CR line endings inside code and raw HTML text", () => {
+    const container = renderMarkdown("```\r\nx\r\ny\ry\r\n```\r\n\r\n<b>\r\nraw</b>");
+    expect(container.querySelector("pre code")?.textContent).toBe("x\ny\ny\n");
+    expect(container.innerHTML).not.toMatch(/\r/);
+  });
+
+  it("applies line limits to CR-only line endings", () => {
+    const text = `${"> ".repeat(16)}x\r`.repeat(400);
+    expect(renderMarkdown(text).querySelector("blockquote")).toBeNull();
+  });
+
   it("does not add breaks inside code or between blocks", () => {
     const container = renderMarkdown(
       "`a\nb` inline\n\n```\nx\ny\n```\n\n- one\n- two\n\n> q1\n> q2",
