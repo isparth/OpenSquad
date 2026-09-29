@@ -28,11 +28,14 @@ const ALLOWED_ELEMENTS = [
 
 // The main process opens only `https://` URLs externally (window.ts). Anything
 // else gets no href and renders as plain text. The parsed href is returned so
-// the scheme is normalized to lowercase before main's prefix check.
+// the scheme is normalized to lowercase before main's prefix check. URLs with
+// credentials are refused: `https://trusted.example@evil.test` misleads the
+// reader about the destination and can leak whatever the userinfo holds.
 export function httpsOnly(url: string): string | undefined {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" ? parsed.href : undefined;
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return undefined;
+    return parsed.href;
   } catch {
     return undefined;
   }

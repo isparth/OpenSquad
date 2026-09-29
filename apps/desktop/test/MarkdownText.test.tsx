@@ -78,6 +78,10 @@ describe("MarkdownText", () => {
     ["fragment", "[click](#top)"],
     ["uppercase javascript", "[click](JAVASCRIPT:alert(1))"],
     ["reference-style http", "[click][r]\n\n[r]: http://x.test"],
+    ["credentialed https", "[click](https://user:pass@x.test/a)"],
+    ["username-only https", "[click](https://user@x.test/a)"],
+    ["password-only https", "[click](https://:pass@x.test/a)"],
+    ["entity-encoded javascript", "[click](javascript&#58;alert(1))"],
   ])("renders a %s link as plain text", (_label, source) => {
     const container = renderMarkdown(source);
     expect(container.querySelector("a")).toBeNull();
@@ -89,6 +93,15 @@ describe("MarkdownText", () => {
     const container = renderMarkdown("Visit https://x.test now");
     expect(container.querySelector("a")).toBeNull();
     expect(container).toHaveTextContent("Visit https://x.test now");
+  });
+
+  it.each([
+    ["javascript", "<javascript:alert(1)>", "javascript:alert(1)"],
+    ["credentialed https", "<https://user:pass@x.test/>", "https://user:pass@x.test/"],
+  ])("renders a %s autolink as plain text", (_label, source, text) => {
+    const container = renderMarkdown(source);
+    expect(container.querySelector("a, [href]")).toBeNull();
+    expect(container).toHaveTextContent(text);
   });
 
   it("renders https autolinks as external links", () => {
