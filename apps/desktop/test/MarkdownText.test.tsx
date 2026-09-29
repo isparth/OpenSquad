@@ -146,6 +146,38 @@ describe("MarkdownText", () => {
     expect(container.querySelector("del")).toBeNull();
   });
 
+  it("keeps single line breaks inside paragraphs, list items and emphasis", () => {
+    const container = renderMarkdown(
+      [
+        "Jane Doe",
+        "1 Main St",
+        "Springfield",
+        "",
+        "- first line",
+        "  continued",
+        "- **bold",
+        "  still bold**",
+      ].join("\n"),
+    );
+    const paragraph = container.querySelector("p");
+    expect(paragraph?.querySelectorAll("br")).toHaveLength(2);
+    expect(paragraph?.textContent?.replace(/\n/g, "")).toBe("Jane Doe1 Main StSpringfield");
+    const items = container.querySelectorAll("li");
+    expect(items[0]?.querySelectorAll("br")).toHaveLength(1);
+    expect(items[1]?.querySelector("strong br")).not.toBeNull();
+  });
+
+  it("does not add breaks inside code or between blocks", () => {
+    const container = renderMarkdown(
+      "`a\nb` inline\n\n```\nx\ny\n```\n\n- one\n- two\n\n> q1\n> q2",
+    );
+    expect(container.querySelector("code br, pre br")).toBeNull();
+    expect(container.querySelector("pre code")?.textContent).toBe("x\ny\n");
+    expect(container.querySelector("ul br")).toBeNull();
+    expect(container.querySelectorAll("blockquote br")).toHaveLength(1);
+    expect(container.querySelectorAll("br")).toHaveLength(1);
+  });
+
   it("renders over-long replies as plain text", () => {
     const text = `**bold** ${"a".repeat(MARKDOWN_MAX_LENGTH)}`;
     const container = renderMarkdown(text);

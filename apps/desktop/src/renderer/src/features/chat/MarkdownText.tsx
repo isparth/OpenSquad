@@ -102,6 +102,37 @@ export function isSafeForMarkdown(text: string): boolean {
   return true;
 }
 
+type MdastNode = { type: string; value?: string; children?: MdastNode[] };
+
+// CommonMark joins single newlines into one paragraph line, but replies use
+// them for addresses and short lines, which the old pre-wrap bubbles kept.
+// Turn each soft line break inside phrasing text into a hard break, like
+// remark-breaks. Code keeps its own `value`, so it is untouched. Iterative,
+// so deep trees cannot overflow the stack here.
+function remarkSoftBreaks() {
+  return (tree: MdastNode) => {
+    const stack: MdastNode[] = [tree];
+    for (let node = stack.pop(); node; node = stack.pop()) {
+      if (!node.children) continue;
+      const children: MdastNode[] = [];
+      for (const child of node.children) {
+        if (child.type !== "text" || !child.value?.includes("\n")) {
+          children.push(child);
+          stack.push(child);
+          continue;
+        }
+        child.value.split("\n").forEach((value, index) => {
+          if (index > 0) children.push({ type: "break" });
+          if (value) children.push({ type: "text", value });
+        });
+      }
+      node.children = children;
+    }
+  };
+}
+
+const remarkPlugins = [remarkSoftBreaks];
+
 function PlainText({ text }: { text: string }) {
   return <span>{text}</span>;
 }
@@ -139,6 +170,7 @@ export const MarkdownText = memo(function MarkdownText({ text }: { text: string 
         <Markdown
           allowedElements={ALLOWED_ELEMENTS}
           unwrapDisallowed
+          remarkPlugins={remarkPlugins}
           urlTransform={httpsOnly}
           components={components}
         >
