@@ -119,10 +119,12 @@ describe("MarkdownText", () => {
         '<div onclick="alert(1)">block</div>',
         "",
         '<iframe src="https://x.test"></iframe>',
+        "",
+        '<span class="chat-typing">fake</span>',
       ].join("\n"),
     );
     const root = container.firstElementChild as HTMLElement;
-    for (const tag of ["script", "img", "b", "div", "iframe"]) {
+    for (const tag of ["script", "img", "b", "div", "iframe", "span"]) {
       expect(root.querySelector(tag)).toBeNull();
     }
     // Raw HTML is shown as literal text rather than dropped.
@@ -212,6 +214,39 @@ describe("MarkdownText", () => {
     );
     expect(container.querySelectorAll("blockquote")).toHaveLength(8);
     expect(container.querySelectorAll("ul")).toHaveLength(8);
+  });
+
+  it.each([
+    ["a paragraph", "Hello **there**", "p"],
+    ["a list", "Intro\n\n- a\n- b", "ul > li:last-child"],
+    ["a nested list", "- a\n  - b\n  - c", "ul ul > li:last-child"],
+    ["a blockquote", "> quoted", "blockquote > p"],
+    ["a code block", "```js\nconst a = 1", "pre > code"],
+  ])("puts the streaming indicator at the end of %s", (_label, text, selector) => {
+    const { container } = render(<MarkdownText text={text} streaming />);
+    const indicators = container.querySelectorAll(".chat-typing");
+    expect(indicators).toHaveLength(1);
+    const indicator = indicators[0] as HTMLElement;
+    expect(indicator).toHaveAttribute("aria-hidden", "true");
+    expect(indicator.textContent).toBe(" …");
+    expect(indicator.parentElement?.matches(selector)).toBe(true);
+    expect(indicator.nextSibling).toBeNull();
+  });
+
+  it("keeps the streaming indicator on the last line of a code block", () => {
+    const { container } = render(<MarkdownText text={"```js\nconst a = 1"} streaming />);
+    expect(container.querySelector("pre code")?.textContent).toBe("const a = 1 …");
+  });
+
+  it("puts the streaming indicator after plain-text fallbacks", () => {
+    const text = `${">".repeat(50_000)} x`;
+    const { container } = render(<MarkdownText text={text} streaming />);
+    expect(container.querySelector(".chat-typing")).toHaveTextContent("…");
+  });
+
+  it("omits the indicator when not streaming", () => {
+    const container = renderMarkdown("Hello");
+    expect(container.querySelector(".chat-typing")).toBeNull();
   });
 
   it("renders unterminated Markdown while streaming", () => {

@@ -707,12 +707,25 @@ describe("chat view", () => {
       },
     });
     source.emit("message.delta", { messageId: "m-stream", contentIndex: 0, text: "**Par" });
+    await waitFor(() => expect(screen.getByText(/\*\*Par/)).toBeInTheDocument());
+    // The running indicator sits at the end of the last line, not on its own.
+    const bubble = document.querySelector(".chat-bubble");
+    expect(bubble?.querySelectorAll(".chat-typing")).toHaveLength(1);
+    expect(bubble?.querySelector("p > .chat-typing")).not.toBeNull();
     source.emit("message.delta", { messageId: "m-stream", contentIndex: 0, text: "tial\n\n```" });
     await waitFor(() => expect(screen.getByText(/\*\*Partial/)).toBeInTheDocument());
     source.emit("message.delta", { messageId: "m-stream", contentIndex: 0, text: "js\nx = 1" });
     await waitFor(() =>
       expect(document.querySelector(".chat-bubble pre code")).toHaveTextContent("x = 1"),
     );
+    source.emit("message.completed", {
+      message: {
+        ...assistantMessage("m-stream", "2", "final", [
+          { index: 0, type: "text", text: "**Partial\n\n```js\nx = 1", completed: true },
+        ]),
+      },
+    });
+    await waitFor(() => expect(document.querySelector(".chat-typing")).toBeNull());
   });
 
   it("shows sandbox startup and reset notices from snapshot and environment events", async () => {

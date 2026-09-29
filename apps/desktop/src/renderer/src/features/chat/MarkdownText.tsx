@@ -23,6 +23,8 @@ const ALLOWED_ELEMENTS = [
   "blockquote",
   "hr",
   "a",
+  // Only the streaming indicator below; raw HTML never becomes elements.
+  "span",
   // Kept only so the component below can replace it with its alt text.
   "img",
 ];
@@ -133,13 +135,83 @@ function remarkSoftBreaks() {
 
 const remarkPlugins = [remarkSoftBreaks];
 
-function PlainText({ text }: { text: string }) {
-  return <span>{text}</span>;
+const TYPING_TEXT = " …";
+
+type HastNode = {
+  type: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+};
+
+const TRAILING_HOSTS = new Set([
+  "p",
+  "li",
+  "ul",
+  "ol",
+  "blockquote",
+  "pre",
+  "code",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+]);
+
+// Append the streaming indicator inside the deepest last block (paragraph,
+// list item, code...) so it sits at the end of the last line.
+function rehypeTrailingIndicator() {
+  return (tree: HastNode) => {
+    let host = tree;
+    for (;;) {
+      const children = host.children ?? [];
+      let last: HastNode | undefined;
+      for (let index = children.length - 1; index >= 0 && !last; index -= 1) {
+        const child = children[index];
+        if (child?.type === "element" || (child?.type === "text" && child.value?.trim()))
+          last = child;
+      }
+      if (last?.type !== "element" || !TRAILING_HOSTS.has(last.tagName ?? "")) break;
+      host = last;
+    }
+    host.children ??= [];
+    // Code text ends with a newline, which would push the indicator down a line.
+    const tail = host.children.at(-1);
+    if (tail?.type === "text" && tail.value?.endsWith("\n")) tail.value = tail.value.slice(0, -1);
+    host.children.push({
+      type: "element",
+      tagName: "span",
+      properties: { className: ["chat-typing"], ariaHidden: "true" },
+      children: [{ type: "text", value: TYPING_TEXT }],
+    });
+  };
+}
+
+const streamingRehypePlugins = [rehypeTrailingIndicator];
+
+function TypingIndicator() {
+  return (
+    <span className="chat-typing" aria-hidden="true">
+      {TYPING_TEXT}
+    </span>
+  );
+}
+
+function PlainText({ text, streaming }: { text: string; streaming: boolean }) {
+  return (
+    <>
+      <span>{text}</span>
+      {streaming && <TypingIndicator />}
+    </>
+  );
 }
 
 // Last line of defence: a parser or renderer failure must not blank the thread.
 class MarkdownBoundary extends Component<
-  { text: string; children: ReactNode },
+  { text: string; streaming: boolean; children: ReactNode },
   { text: string; failed: boolean }
 > {
   override state = { text: this.props.text, failed: false };
@@ -157,20 +229,32 @@ class MarkdownBoundary extends Component<
   }
 
   override render() {
-    return this.state.failed ? <PlainText text={this.props.text} /> : this.props.children;
+    return this.state.failed ? (
+      <PlainText text={this.props.text} streaming={this.props.streaming} />
+    ) : (
+      this.props.children
+    );
   }
 }
 
 // Every streamed delta re-renders the thread; unchanged messages skip the parse.
-export const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
-  if (!isSafeForMarkdown(text)) return <PlainText text={text} />;
+export const MarkdownText = memo(function MarkdownText({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  /** Show the running indicator at the end of the last line. */
+  streaming?: boolean;
+}) {
+  if (!isSafeForMarkdown(text)) return <PlainText text={text} streaming={streaming} />;
   return (
-    <MarkdownBoundary text={text}>
+    <MarkdownBoundary text={text} streaming={streaming}>
       <div className="chat-markdown">
         <Markdown
           allowedElements={ALLOWED_ELEMENTS}
           unwrapDisallowed
           remarkPlugins={remarkPlugins}
+          rehypePlugins={streaming ? streamingRehypePlugins : undefined}
           urlTransform={httpsOnly}
           components={components}
         >
