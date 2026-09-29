@@ -923,6 +923,7 @@ input[type="file"]::file-selector-button {
 .chat-author {
   font-size: 11px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .chat-bubble {
   background: var(--subtle);
@@ -931,6 +932,7 @@ input[type="file"]::file-selector-button {
   padding: 8px 12px;
   line-height: 1.5;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .chat-message.user .chat-bubble {
   background: var(--accent-soft);
@@ -997,6 +999,7 @@ input[type="file"]::file-selector-button {
 .chat-commentary {
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .command-row {
   display: flex;
@@ -1060,6 +1063,7 @@ input[type="file"]::file-selector-button {
 .chat-status-bar p {
   margin: 0;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .chat-run-actions {
   display: flex;
