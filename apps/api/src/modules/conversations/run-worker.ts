@@ -251,6 +251,10 @@ export async function executeRun(work: RunWork) {
       if (terminal(current.status)) break;
       if (current.cancelRequested && !current.cancelDispatched) await cancel();
       if (pumpFailure || done) {
+        // The stream may end right after delivering the root outcome while we
+        // were applying earlier events. Apply what it delivered before calling
+        // it lost. Output overflow stops immediately instead of draining.
+        if (queued.length && pumpFailure !== "output_limit") continue;
         errorCode = pumpFailure ?? "stream_disconnected";
         throw new Error("Subscription ended without a root outcome");
       }
